@@ -140,6 +140,13 @@ def content_disposition_filenames(attachment_filename):
     return filenames
 
 
+# Query results are made of user-authored data (query text, column names, cell
+# values). Even with an accurate Content-Type, browsers and plugins may sniff the
+# body and render a download as HTML, so opt out of MIME sniffing to keep these
+# responses from becoming an XSS vector (CWE-79).
+NO_SNIFF_HEADERS = {"X-Content-Type-Options": "nosniff"}
+
+
 class QueryResultListResource(BaseResource):
     @require_permission("execute_query")
     def post(self):
@@ -377,22 +384,25 @@ class QueryResultResource(BaseResource):
     @staticmethod
     def make_json_response(query_result):
         data = json_dumps({"query_result": query_result.to_dict()})
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", **NO_SNIFF_HEADERS}
         return make_response(data, 200, headers)
 
     @staticmethod
     def make_csv_response(query_result):
-        headers = {"Content-Type": "text/csv; charset=UTF-8"}
+        headers = {"Content-Type": "text/csv; charset=UTF-8", **NO_SNIFF_HEADERS}
         return make_response(serialize_query_result_to_dsv(query_result, ","), 200, headers)
 
     @staticmethod
     def make_tsv_response(query_result):
-        headers = {"Content-Type": "text/tab-separated-values; charset=UTF-8"}
+        headers = {"Content-Type": "text/tab-separated-values; charset=UTF-8", **NO_SNIFF_HEADERS}
         return make_response(serialize_query_result_to_dsv(query_result, "\t"), 200, headers)
 
     @staticmethod
     def make_excel_response(query_result):
-        headers = {"Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+        headers = {
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            **NO_SNIFF_HEADERS,
+        }
         return make_response(serialize_query_result_to_xlsx(query_result), 200, headers)
 
 

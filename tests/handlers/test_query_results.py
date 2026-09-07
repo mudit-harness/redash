@@ -45,6 +45,39 @@ class TestQueryResultsContentDispositionHeaders(BaseTestCase):
             self.fail(repr(e))
 
 
+class TestQueryResultsContentTypeHeaders(BaseTestCase):
+    def test_downloads_declare_their_type_and_disable_sniffing(self):
+        query_result = self.factory.create_query_result()
+        query = self.factory.create_query(latest_query_data=query_result)
+
+        expected_content_types = {
+            "json": "application/json",
+            "csv": "text/csv; charset=UTF-8",
+            "tsv": "text/tab-separated-values; charset=UTF-8",
+            "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }
+
+        for filetype, content_type in expected_content_types.items():
+            rv = self.make_request(
+                "get",
+                "/api/queries/{}/results/{}.{}".format(query.id, query_result.id, filetype),
+                is_json=False,
+            )
+
+            self.assertEqual(200, rv.status_code)
+            self.assertEqual(content_type, rv.headers["Content-Type"])
+            self.assertEqual("nosniff", rv.headers["X-Content-Type-Options"])
+
+    def test_api_responses_declare_json_and_disable_sniffing(self):
+        query = self.factory.create_query()
+
+        rv = self.make_request("get", "/api/queries/{}".format(query.id))
+
+        self.assertEqual(200, rv.status_code)
+        self.assertEqual("application/json", rv.headers["Content-Type"])
+        self.assertEqual("nosniff", rv.headers["X-Content-Type-Options"])
+
+
 class TestQueryResultListAPI(BaseTestCase):
     def test_get_existing_result(self):
         query_result = self.factory.create_query_result()
