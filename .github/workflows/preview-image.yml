@@ -133,9 +133,11 @@ jobs:
         run: docker compose logs
 
       - name: Export digest
+        env:
+          DOCKER_REPOSITORY_INPUT: ${{ github.event.inputs.dockerRepository }}
         run: |
           mkdir -p ${{ runner.temp }}/digests
-          if [[ "${{ github.event.inputs.dockerRepository }}" == 'preview' || !github.event.workflow_run ]]; then
+          if [[ "$DOCKER_REPOSITORY_INPUT" == 'preview' || !github.event.workflow_run ]]; then
             digest="${{ steps.build-preview.outputs.digest}}"
           else
             digest="${{ steps.build-release.outputs.digest}}"
