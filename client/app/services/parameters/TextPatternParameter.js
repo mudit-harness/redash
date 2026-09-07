@@ -1,4 +1,5 @@
 import { toString, isNull } from "lodash";
+import { matchesRegexPattern } from "@/lib/safeRegex";
 import Parameter from "./Parameter";
 
 class TextPatternParameter extends Parameter {
@@ -15,12 +16,11 @@ class TextPatternParameter extends Parameter {
       return null;
     }
 
-    var re = new RegExp(this.regex);
-
-    if (re !== null) {
-      if (re.test(normalizedValue)) {
-        return normalizedValue;
-      }
+    // The pattern is supplied by the query author and the value by whoever runs the query, so the
+    // match is bounded (pattern/value length, no catastrophic backtracking) to keep a pathological
+    // pattern from hanging the browser. Values that do not match are still rejected.
+    if (matchesRegexPattern(this.regex, normalizedValue)) {
+      return normalizedValue;
     }
     return null;
   }
