@@ -11,7 +11,9 @@ x-redash-environment: &redash-environment
   REDASH_DATABASE_URL: "postgresql://postgres:FmTKs5vX52ufKR1rd8tn4MoSP7zvCJwb@postgres/postgres"
   REDASH_RATELIMIT_ENABLED: "false"
   REDASH_ENFORCE_CSRF: "true"
-  REDASH_COOKIE_SECRET: "2H9gNG9obnAQ9qnR9BDTQUph6CbXKCzF"
+  # Provided by the caller (CI generates a fresh ephemeral value per run,
+  # locally: `export REDASH_COOKIE_SECRET=$(openssl rand -hex 32)`).
+  REDASH_COOKIE_SECRET: "${REDASH_COOKIE_SECRET:?REDASH_COOKIE_SECRET must be set to an ephemeral value before running this compose file}"
 services:
   server:
     <<: *redash-service

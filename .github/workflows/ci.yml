@@ -43,6 +43,8 @@ jobs:
         with:
           fetch-depth: 1
           ref: ${{ github.event.pull_request.head.sha }}
+      - name: Generate Ephemeral Cookie Secret
+        run: echo "REDASH_COOKIE_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
       - name: Build Docker Images
         run: |
           set -x
@@ -158,6 +160,8 @@ jobs:
         if: endsWith(github.ref, '/master')
         run: |
           echo "CODE_COVERAGE=true" >> "$GITHUB_ENV"
+      - name: Generate Ephemeral Cookie Secret
+        run: echo "REDASH_COOKIE_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
       - name: Setup Redash Server
