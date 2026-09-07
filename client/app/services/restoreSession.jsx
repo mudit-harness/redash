@@ -5,6 +5,21 @@ import { Auth } from "@/services/auth";
 
 const SESSION_RESTORED_MESSAGE = "redash_session_restored";
 
+// The restore-session popup is opened with `Auth.getLoginUrl()`, which is a Redash-relative
+// path ("login" by default), so the only legitimate sender of SESSION_RESTORED_MESSAGE is a
+// Redash page running on this very same origin (it posts back via `notifySessionRestored`).
+// Compare the full origin string for equality -- never a prefix/substring match, which
+// "https://redash.example.com.evil.com" would satisfy -- and also verify the message shape,
+// because other libraries legitimately post unrelated messages to this window.
+function isSessionRestoredMessage(event) {
+  return (
+    event.origin === window.location.origin &&
+    !!event.data &&
+    typeof event.data === "object" &&
+    event.data.type === SESSION_RESTORED_MESSAGE
+  );
+}
+
 export function notifySessionRestored() {
   if (window.opener) {
     window.opener.postMessage({ type: SESSION_RESTORED_MESSAGE }, window.location.origin);
@@ -59,15 +74,18 @@ function showRestoreSessionPrompt(loginUrl, onSuccess) {
       popup = window.open(loginUrl, "Restore Session", map(popupOptions, (value, key) => `${key}=${value}`).join(","));
 
       const handlePostMessage = (event) => {
-        if (event.data.type === SESSION_RESTORED_MESSAGE) {
-          if (popup) {
-            popup.close();
-          }
-          popup = null;
-          window.removeEventListener("message", handlePostMessage);
-          closeModal();
-          onSuccess();
+        // Silently ignore messages from other origins and any unrelated message on this window.
+        if (!isSessionRestoredMessage(event)) {
+          return;
         }
+
+        if (popup) {
+          popup.close();
+        }
+        popup = null;
+        window.removeEventListener("message", handlePostMessage);
+        closeModal();
+        onSuccess();
       };
 
       window.addEventListener("message", handlePostMessage, false);
