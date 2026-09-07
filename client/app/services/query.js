@@ -14,6 +14,8 @@ import {
   has,
   extend,
   each,
+  keyBy,
+  pickBy,
   some,
   clone,
   find,
@@ -154,7 +156,7 @@ export class Query {
         extend(params, param.toUrlParams());
       });
     }
-    Object.keys(params).forEach((key) => params[key] == null && delete params[key]);
+    params = pickBy(params, (value) => value != null);
     params = map(params, (value, name) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join("&");
 
     if (params !== "") {
@@ -255,10 +257,7 @@ class Parameters {
 
     this.query.options.parameters = this.query.options.parameters || [];
 
-    const parametersMap = {};
-    this.query.options.parameters.forEach((param) => {
-      parametersMap[param.name] = param;
-    });
+    const parametersMap = keyBy(this.query.options.parameters, "name");
 
     parameterNames.forEach((param) => {
       if (!has(parametersMap, param)) {
@@ -332,10 +331,8 @@ class Parameters {
     }
 
     const params = Object.assign(...this.get().map((p) => p.toUrlParams()));
-    Object.keys(params).forEach((key) => params[key] == null && delete params[key]);
-    return Object.keys(params)
-      .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`)
-      .join("&");
+    const definedParams = pickBy(params, (value) => value != null);
+    return map(definedParams, (value, key) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join("&");
   }
 }
 
