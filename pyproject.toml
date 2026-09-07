@@ -163,12 +163,11 @@ dev = [
     "ruff==0.0.289",
 ]
 
+# Cooldown: don't resolve package versions published in the last 7 days, to avoid freshly published malicious or unstable releases.
 [tool.uv]
+exclude-newer = "7 days"
 package = false
 default-groups = []
-# Cooldown: don't resolve package versions published in the last 7 days,
-# so freshly published (possibly malicious or unstable) releases are avoided.
-exclude-newer = "7 days"
 
 [tool.ruff]
 exclude = [".git", "viz-lib", "node_modules", "migrations"]
