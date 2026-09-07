@@ -20,14 +20,12 @@ const path = require("path");
 const projectRoot = path.join(__dirname, path.sep);
 
 function optionalRequire(module, defaultReturn = undefined) {
-  // Relative and absolute requests are resolved against a fixed base directory
-  // (this file's directory); bare specifiers keep resolving from node_modules,
-  // which lives inside the project root as well.
-  const request = module.startsWith(".") ? path.resolve(__dirname, module) : module;
-
   let modulePath;
   try {
-    modulePath = require.resolve(request);
+    // Resolution is anchored to this file's directory: relative requests are
+    // resolved against it, and bare specifiers resolve through this
+    // directory's node_modules chain, which lives inside the project root.
+    modulePath = require.resolve(module, { paths: [__dirname] });
   } catch (e) {
     if (e && e.code === "MODULE_NOT_FOUND") {
       // Module was not found, return default value if any
