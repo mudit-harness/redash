@@ -16,6 +16,7 @@ from redash.query_runner import (
     register,
 )
 from redash.utils import json_dumps
+from redash.utils.sql import InvalidIdentifierError, validate_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,15 @@ def flatten(value):
 
 
 def create_table(connection, table_name, query_results):
+    # The table name and the column names are identifiers, which SQLite doesn't accept
+    # as bound parameters: validate the table name and quote the column names so that
+    # neither can break out of its identifier position. Row values below are always
+    # passed as bound parameters.
+    try:
+        table_name = validate_identifier(table_name, "table name")
+    except InvalidIdentifierError as exc:
+        raise CreateTableError(str(exc))
+
     try:
         columns = [column["name"] for column in query_results["columns"]]
         safe_columns = [fix_column_name(column) for column in columns]

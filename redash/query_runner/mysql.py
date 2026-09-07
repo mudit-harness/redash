@@ -286,9 +286,11 @@ class Mysql(BaseSQLQueryRunner):
         try:
             connection = self._connection()
             cursor = connection.cursor()
-            query = "KILL %d" % (thread_id)
-            logging.debug(query)
-            cursor.execute(query)
+            # KILL takes a numeric thread id: coerce it and let the driver escape it as
+            # a bound parameter instead of building the statement by string formatting.
+            thread_id = int(thread_id)
+            logging.debug("KILL %s", thread_id)
+            cursor.execute("KILL %s", (thread_id,))
         except MySQLdb.Error as e:
             if cursor:
                 cursor.close()

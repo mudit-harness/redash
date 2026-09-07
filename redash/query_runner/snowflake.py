@@ -20,6 +20,7 @@ from redash.query_runner import (
     BaseSQLQueryRunner,
     register,
 )
+from redash.utils.sql import validate_identifier
 
 TYPES_MAP = {
     0: TYPE_INTEGER,
@@ -145,12 +146,17 @@ class Snowflake(BaseSQLQueryRunner):
         return data
 
     def run_query(self, query, user):
+        # USE takes an identifier, which can't be passed as a bound parameter, so the
+        # configured values are validated before they are put into the statement.
+        warehouse = validate_identifier(self.configuration["warehouse"], "warehouse name")
+        database = validate_identifier(self.configuration["database"], "database name", allow_dots=True)
+
         connection = self._get_connection()
         cursor = connection.cursor()
 
         try:
-            cursor.execute("USE WAREHOUSE {}".format(self.configuration["warehouse"]))
-            cursor.execute("USE {}".format(self.configuration["database"]))
+            cursor.execute("USE WAREHOUSE {}".format(warehouse))
+            cursor.execute("USE {}".format(database))
 
             cursor.execute(query)
 
@@ -163,11 +169,14 @@ class Snowflake(BaseSQLQueryRunner):
         return data, error
 
     def _run_query_without_warehouse(self, query):
+        # See run_query: the database name is an identifier, not a bindable value.
+        database = validate_identifier(self.configuration["database"], "database name", allow_dots=True)
+
         connection = self._get_connection()
         cursor = connection.cursor()
 
         try:
-            cursor.execute("USE {}".format(self.configuration["database"]))
+            cursor.execute("USE {}".format(database))
 
             cursor.execute(query)
 

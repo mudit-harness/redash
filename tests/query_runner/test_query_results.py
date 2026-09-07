@@ -119,6 +119,13 @@ class TestCreateTable(TestCase):
         create_table(connection, table_name, results)
         connection.execute("SELECT 1 FROM query_123")
 
+    def test_does_not_create_table_with_unsafe_table_name(self):
+        connection = sqlite3.connect(":memory:")
+        results = {"columns": [{"name": "test1"}], "rows": []}
+        with pytest.raises(CreateTableError):
+            create_table(connection, 'query_123"); DROP TABLE users; --', results)
+        self.assertEqual([], list(connection.execute("SELECT name FROM sqlite_master")))
+
     def test_shows_meaningful_error_on_failure_to_create_table(self):
         connection = sqlite3.connect(":memory:")
         results = {"columns": [], "rows": []}
