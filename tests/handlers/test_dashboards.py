@@ -1,8 +1,11 @@
+from mock import patch
+
+from redash import settings
 from redash.models import AccessPermission, ApiKey, Dashboard, db
 from redash.permissions import ACCESS_TYPE_MODIFY
 from redash.serializers import serialize_dashboard
 from redash.utils import json_loads
-from tests import BaseTestCase
+from tests import BaseTestCase, authenticate_request
 
 
 class TestDashboardListResource(BaseTestCase):
@@ -81,6 +84,23 @@ class TestDashboardResourceGet(BaseTestCase):
         self.assertEqual(rv.status_code, 200)
         self.assertTrue(rv.json["widgets"][0]["restricted"])
         self.assertNotIn("restricted", rv.json["widgets"][1])
+
+    def test_public_url_is_built_from_the_configured_host(self):
+        dashboard = self.factory.create_dashboard()
+        ApiKey.create_for_object(dashboard, self.factory.user)
+        db.session.commit()
+        authenticate_request(self.client, self.factory.user)
+
+        with patch.object(settings, "HOST", "https://redash.example.com"):
+            rv = self.client.get(
+                "/{}/api/dashboards/{}".format(self.factory.org.slug, dashboard.id),
+                headers={"Host": "evil.example.com"},
+            )
+
+        self.assertEqual(rv.status_code, 200)
+        public_url = rv.json["public_url"]
+        self.assertTrue(public_url.startswith("https://redash.example.com/"), public_url)
+        self.assertNotIn("evil.example.com", public_url)
 
     def test_get_non_existing_dashboard(self):
         rv = self.make_request("get", "/api/dashboards/-1")
@@ -178,6 +198,21 @@ class TestDashboardShareResourcePost(BaseTestCase):
         res = self.make_request("post", "/api/dashboards/{}/share".format(dashboard.id))
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json["api_key"], ApiKey.get_by_object(dashboard).api_key)
+
+    def test_public_url_is_built_from_the_configured_host(self):
+        dashboard = self.factory.create_dashboard()
+        authenticate_request(self.client, self.factory.user)
+
+        with patch.object(settings, "HOST", "https://redash.example.com"):
+            res = self.client.post(
+                "/{}/api/dashboards/{}/share".format(self.factory.org.slug, dashboard.id),
+                headers={"Host": "evil.example.com"},
+            )
+
+        self.assertEqual(res.status_code, 200)
+        public_url = res.json["public_url"]
+        self.assertTrue(public_url.startswith("https://redash.example.com/"), public_url)
+        self.assertNotIn("evil.example.com", public_url)
 
     def test_requires_admin_or_owner(self):
         dashboard = self.factory.create_dashboard()

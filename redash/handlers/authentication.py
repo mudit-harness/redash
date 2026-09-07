@@ -15,6 +15,7 @@ from redash.authentication.account import (
 )
 from redash.handlers import routes
 from redash.handlers.base import json_response, org_scoped_rule
+from redash.utils import external_url_for
 from redash.version_check import get_latest_version
 
 logger = logging.getLogger(__name__)
@@ -227,10 +228,12 @@ def logout(org_slug=None):
 
 
 def base_href():
+    # Absolute URL built from trusted configuration (REDASH_HOST) instead of the
+    # request's Host header, which a client can spoof.
     if settings.MULTI_ORG:
-        base_href = url_for("redash.index", _external=True, org_slug=current_org.slug)
+        base_href = external_url_for("redash.index", org_slug=current_org.slug)
     else:
-        base_href = url_for("redash.index", _external=True)
+        base_href = external_url_for("redash.index")
 
     return base_href
 

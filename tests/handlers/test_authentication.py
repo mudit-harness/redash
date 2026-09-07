@@ -5,7 +5,7 @@ import mock
 from redash import limiter, settings
 from redash.authentication.account import invite_token
 from redash.models import User
-from tests import BaseTestCase
+from tests import BaseTestCase, authenticate_request
 
 
 class TestResetPassword(BaseTestCase):
@@ -130,3 +130,16 @@ class TestSession(BaseTestCase):
     # really simple test just to trigger this route
     def test_get(self):
         self.make_request("get", "/default/api/session", user=self.factory.user, org=False)
+
+
+class TestClientConfig(BaseTestCase):
+    def test_base_path_is_built_from_the_configured_host(self):
+        authenticate_request(self.client, self.factory.user)
+
+        with mock.patch.object(settings, "HOST", "https://redash.example.com"):
+            response = self.client.get("/api/config", headers={"Host": "evil.example.com"})
+
+        self.assertEqual(response.status_code, 200)
+        base_path = response.json["client_config"]["basePath"]
+        self.assertEqual(base_path, "https://redash.example.com/{}/".format(self.factory.org.slug))
+        self.assertNotIn("evil.example.com", base_path)

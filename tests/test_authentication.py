@@ -24,10 +24,12 @@ from redash.authentication import (
 )
 from redash.authentication.google_oauth import (
     build_next_path,
+    build_redirect_uri,
     create_and_login_user,
     get_safe_next_path,
     verify_profile,
 )
+from redash.authentication.saml_auth import get_saml_client
 from tests import BaseTestCase
 
 
@@ -293,6 +295,20 @@ class TestGetLoginUrl(BaseTestCase):
         with self.app.test_request_context("/{}_notexists/".format(self.factory.org.slug)):
             self.assertEqual(get_login_url(next=None), "/")
 
+    def test_external_login_url_is_built_from_the_configured_host(self):
+        with self.app.test_request_context(
+            "/{}/".format(self.factory.org.slug),
+            base_url="http://evil.example.com/",
+        ):
+            with patch.object(settings, "HOST", "https://redash.example.com"):
+                login_url = get_login_url(external=True, next=None)
+
+        self.assertEqual(
+            login_url,
+            "https://redash.example.com/{}/login".format(self.factory.org.slug),
+        )
+        self.assertNotIn("evil.example.com", login_url)
+
 
 class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def setUp(self):
@@ -454,6 +470,22 @@ class TestGoogleOAuthNextPath(BaseTestCase):
             self.assertNotIn("evil.com", next_path)
             self.assertTrue(next_path.endswith("/{}/".format(self.factory.org.slug)), next_path)
 
+    def test_build_next_path_fallback_is_built_from_the_configured_host(self):
+        with self.app.test_request_context("/oauth/google", base_url="http://evil.example.com/"):
+            with patch.object(settings, "HOST", "https://redash.example.com"):
+                next_path = build_next_path(self.factory.org.slug)
+
+        self.assertEqual(next_path, "https://redash.example.com/{}/".format(self.factory.org.slug))
+        self.assertNotIn("evil.example.com", next_path)
+
+    def test_build_redirect_uri_is_built_from_the_configured_host(self):
+        with self.app.test_request_context("/oauth/google", base_url="http://evil.example.com/"):
+            with patch.object(settings, "HOST", "https://redash.example.com"):
+                redirect_uri = build_redirect_uri()
+
+        self.assertEqual(redirect_uri, "https://redash.example.com/oauth/google_callback")
+        self.assertNotIn("evil.example.com", redirect_uri)
+
     def test_org_login_forwards_only_on_site_next_param(self):
         response = self.get_request("/oauth/google?next=/queries/5", org=self.factory.org)
         self.assertEqual(response.status_code, 302)
@@ -469,6 +501,42 @@ class TestGoogleOAuthNextPath(BaseTestCase):
             )
             self.assertEqual(response.status_code, 302)
             self.assertNotIn("evil.com", response.location)
+
+
+class TestSamlAssertionConsumerServiceUrl(BaseTestCase):
+    def acs_url(self, scheme_override=""):
+        org = self.factory.org
+
+        with self.app.test_request_context(
+            "/{}/saml/login".format(org.slug),
+            base_url="http://evil.example.com/",
+        ):
+            with patch.object(settings, "HOST", "https://redash.example.com"):
+                with patch.object(settings, "SAML_SCHEME_OVERRIDE", scheme_override):
+                    with patch("redash.authentication.saml_auth.Saml2Client"):
+                        with patch("redash.authentication.saml_auth.Saml2Config") as saml_config:
+                            get_saml_client(org)
+
+        saml_settings = saml_config.return_value.load.call_args[0][0]
+        return saml_settings["service"]["sp"]["endpoints"]["assertion_consumer_service"][0][0]
+
+    def test_acs_url_is_built_from_the_configured_host(self):
+        acs_url = self.acs_url()
+
+        self.assertEqual(
+            acs_url,
+            "https://redash.example.com/{}/saml/callback".format(self.factory.org.slug),
+        )
+        self.assertNotIn("evil.example.com", acs_url)
+
+    def test_scheme_override_still_applies(self):
+        acs_url = self.acs_url(scheme_override="http")
+
+        self.assertEqual(
+            acs_url,
+            "http://redash.example.com/{}/saml/callback".format(self.factory.org.slug),
+        )
+        self.assertNotIn("evil.example.com", acs_url)
 
 
 class TestRemoteUserAuth(BaseTestCase):

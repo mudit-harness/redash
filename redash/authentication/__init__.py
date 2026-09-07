@@ -17,18 +17,23 @@ from redash.authentication import jwt_auth
 from redash.authentication.org_resolving import current_org
 from redash.settings.organization import settings as org_settings
 from redash.tasks import record_event
+from redash.utils import external_url_for
 
 login_manager = LoginManager()
 logger = logging.getLogger("authentication")
 
 
 def get_login_url(external=False, next="/"):
+    # When an absolute URL is requested, build it from trusted configuration
+    # (REDASH_HOST) rather than from the request's spoofable Host header.
+    build_url = external_url_for if external else url_for
+
     if settings.MULTI_ORG and current_org == None:  # noqa: E711
         login_url = "/"
     elif settings.MULTI_ORG:
-        login_url = url_for("redash.login", org_slug=current_org.slug, next=next, _external=external)
+        login_url = build_url("redash.login", org_slug=current_org.slug, next=next)
     else:
-        login_url = url_for("redash.login", next=next, _external=external)
+        login_url = build_url("redash.login", next=next)
 
     return login_url
 

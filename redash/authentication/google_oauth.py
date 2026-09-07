@@ -11,6 +11,7 @@ from redash.authentication import (
     logout_and_redirect_to_index,
 )
 from redash.authentication.org_resolving import current_org
+from redash.utils import external_url_for
 
 
 def verify_profile(org, profile):
@@ -41,8 +42,11 @@ def get_user_profile(access_token, logger):
 
 
 def build_redirect_uri():
+    # The OAuth redirect URI is handed to Google, which sends the user (and the
+    # authorization code) back to it, so it must come from trusted configuration
+    # (REDASH_HOST) and not from the request's spoofable Host header.
     scheme = settings.GOOGLE_OAUTH_SCHEME_OVERRIDE or None
-    return url_for(".callback", _external=True, _scheme=scheme)
+    return external_url_for(".callback", _scheme=scheme)
 
 
 def get_safe_next_path(unsafe_next_path):
@@ -69,10 +73,11 @@ def build_next_path(org_slug=None):
         if settings.GOOGLE_OAUTH_SCHEME_OVERRIDE:
             scheme = settings.GOOGLE_OAUTH_SCHEME_OVERRIDE
 
-        next_path = url_for(
+        # Absolute URL built from trusted configuration (REDASH_HOST) instead of
+        # the request's Host header, which a client can spoof.
+        next_path = external_url_for(
             "redash.index",
             org_slug=org_slug,
-            _external=True,
             _scheme=scheme,
         )
     return next_path

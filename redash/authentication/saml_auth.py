@@ -14,7 +14,7 @@ from redash.authentication import (
 )
 from redash.authentication.org_resolving import current_org
 from redash.handlers.base import org_scoped_rule
-from redash.utils import mustache_render
+from redash.utils import external_url_for, mustache_render
 
 logger = logging.getLogger("saml_auth")
 blueprint = Blueprint("saml_auth", __name__)
@@ -35,15 +35,14 @@ def get_saml_client(org):
     metadata_url = org.get_setting("auth_saml_metadata_url")
     sp_settings = org.get_setting("auth_saml_sp_settings")
 
-    if settings.SAML_SCHEME_OVERRIDE:
-        acs_url = url_for(
-            "saml_auth.idp_initiated",
-            org_slug=org.slug,
-            _external=True,
-            _scheme=settings.SAML_SCHEME_OVERRIDE,
-        )
-    else:
-        acs_url = url_for("saml_auth.idp_initiated", org_slug=org.slug, _external=True)
+    # The ACS URL is sent to the IdP, which redirects the user (and the SAML
+    # assertion) back to it, so it must come from trusted configuration
+    # (REDASH_HOST) and not from the request's spoofable Host header.
+    acs_url = external_url_for(
+        "saml_auth.idp_initiated",
+        org_slug=org.slug,
+        _scheme=settings.SAML_SCHEME_OVERRIDE or None,
+    )
 
     saml_settings = {
         "metadata": {"remote": [{"url": metadata_url}]},
