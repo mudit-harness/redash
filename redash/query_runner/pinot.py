@@ -10,6 +10,7 @@ import logging
 import requests
 from requests.auth import HTTPBasicAuth
 
+from redash import settings
 from redash.query_runner import (
     TYPE_BOOLEAN,
     TYPE_DATETIME,
@@ -129,7 +130,12 @@ class Pinot(BaseQueryRunner):
 
     def get_metadata_from_controller(self, path):
         url = self.controller_uri + path
-        r = requests.get(url, headers={"Accept": "application/json"}, auth=HTTPBasicAuth(self.username, self.password))
+        r = requests.get(
+            url,
+            headers={"Accept": "application/json"},
+            auth=HTTPBasicAuth(self.username, self.password),
+            timeout=settings.REQUESTS_TIMEOUT,
+        )
         try:
             result = r.json()
             logger.debug("get_metadata_from_controller from path %s", path)

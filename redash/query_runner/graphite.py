@@ -3,6 +3,7 @@ import logging
 
 import requests
 
+from redash import settings
 from redash.query_runner import (
     TYPE_DATETIME,
     TYPE_FLOAT,
@@ -71,6 +72,7 @@ class Graphite(BaseQueryRunner):
             "{}/render".format(self.configuration["url"]),
             auth=self.auth,
             verify=self.verify,
+            timeout=settings.REQUESTS_TIMEOUT,
         )
         if r.status_code != 200:
             raise Exception("Got invalid response from Graphite (http status code: {0}).".format(r.status_code))
@@ -81,7 +83,7 @@ class Graphite(BaseQueryRunner):
         data = None
 
         try:
-            response = requests.get(url, auth=self.auth, verify=self.verify)
+            response = requests.get(url, auth=self.auth, verify=self.verify, timeout=settings.REQUESTS_TIMEOUT)
 
             if response.status_code == 200:
                 data = _transform_result(response)

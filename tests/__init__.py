@@ -18,6 +18,9 @@ os.environ["REDASH_RATELIMIT_ENABLED"] = "true"
 
 os.environ["REDASH_ENFORCE_CSRF"] = "false"
 
+from flask import session as flask_session  # noqa: E402
+from flask_wtf.csrf import generate_csrf  # noqa: E402
+
 from redash import limiter, redis_connection  # noqa: E402
 from redash.app import create_app  # noqa: E402
 from redash.models import db  # noqa: E402
@@ -62,6 +65,22 @@ class BaseTestCase(TestCase):
         db.get_engine(self.app).dispose()
         self.app_ctx.pop()
         redis_connection.flushdb()
+
+    def csrf_token(self):
+        """Return a CSRF token that is valid for ``self.client``'s session.
+
+        This mirrors what a browser gets from a server-rendered form: the signed
+        token travels with the request, while the secret it is derived from is
+        kept in the session.
+        """
+        with self.app.test_request_context():
+            token = generate_csrf()
+            secret = flask_session["csrf_token"]
+
+        with self.client.session_transaction() as session:
+            session["csrf_token"] = secret
+
+        return token
 
     def make_request(
         self,

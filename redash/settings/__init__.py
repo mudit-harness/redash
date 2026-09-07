@@ -58,7 +58,7 @@ INVITATION_TOKEN_MAX_AGE = int(os.environ.get("REDASH_INVITATION_TOKEN_MAX_AGE",
 # The secret key to use in the Flask app for various cryptographic features
 SECRET_KEY = os.environ.get("REDASH_COOKIE_SECRET")
 
-if SECRET_KEY is None:
+if SECRET_KEY is None or not SECRET_KEY.strip():
     raise Exception(
         "You must set the REDASH_COOKIE_SECRET environment variable. Visit http://redash.io/help/open-source/admin-guide/secrets for more information."
     )
@@ -458,6 +458,23 @@ SQLPARSE_FORMAT_OPTIONS = {
 
 # requests
 REQUESTS_ALLOW_REDIRECTS = parse_boolean(os.environ.get("REDASH_REQUESTS_ALLOW_REDIRECTS", "false"))
+
+# Default (connect, read) timeout in seconds for outgoing HTTP calls made with the requests
+# library. Without a timeout a hung remote endpoint keeps a socket and a worker busy forever.
+# REQUESTS_TIMEOUT is meant for query runners: they talk to remote analytics engines where a
+# single query can legitimately run for minutes, so the read timeout is generous while the
+# connect phase stays short.
+REQUESTS_TIMEOUT = (
+    float(os.environ.get("REDASH_REQUESTS_CONNECT_TIMEOUT", "10")),
+    float(os.environ.get("REDASH_REQUESTS_READ_TIMEOUT", "600")),
+)
+# REQUESTS_SHORT_TIMEOUT is meant for calls on a user request or short task path (auth
+# callbacks, event webhooks), where hanging blocks a user or a queue and no long read is
+# legitimate.
+REQUESTS_SHORT_TIMEOUT = (
+    float(os.environ.get("REDASH_REQUESTS_SHORT_CONNECT_TIMEOUT", "5")),
+    float(os.environ.get("REDASH_REQUESTS_SHORT_READ_TIMEOUT", "15")),
+)
 
 # Enforces CSRF token validation on API requests.
 # This is turned off by default to avoid breaking any existing deployments but it is highly recommended to turn this toggle on to prevent CSRF attacks.

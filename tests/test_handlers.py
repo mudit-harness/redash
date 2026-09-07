@@ -117,7 +117,10 @@ class TestLogin(BaseTestCase):
 
     def test_submit_non_existing_user(self):
         with patch("redash.handlers.authentication.login_user") as login_user_mock:
-            rv = self.client.post("/default/login", data={"email": "arik", "password": "password"})
+            rv = self.client.post(
+                "/default/login",
+                data={"csrf_token": self.csrf_token(), "email": "arik", "password": "password"},
+            )
             self.assertEqual(rv.status_code, 200)
             self.assertFalse(login_user_mock.called)
 
@@ -129,7 +132,10 @@ class TestLogin(BaseTestCase):
         self.db.session.commit()
 
         with patch("redash.handlers.authentication.login_user") as login_user_mock:
-            rv = self.client.post("/default/login", data={"email": user.email, "password": "password"})
+            rv = self.client.post(
+                "/default/login",
+                data={"csrf_token": self.csrf_token(), "email": user.email, "password": "password"},
+            )
             self.assertEqual(rv.status_code, 302)
             login_user_mock.assert_called_with(user, remember=False)
 
@@ -143,7 +149,11 @@ class TestLogin(BaseTestCase):
         with patch("redash.handlers.authentication.login_user") as login_user_mock:
             rv = self.client.post(
                 "/default/login",
-                data={"email": user.email.upper(), "password": "password"},
+                data={
+                    "csrf_token": self.csrf_token(),
+                    "email": user.email.upper(),
+                    "password": "password",
+                },
             )
             self.assertEqual(rv.status_code, 302)
             login_user_mock.assert_called_with(user, remember=False)
@@ -158,7 +168,12 @@ class TestLogin(BaseTestCase):
         with patch("redash.handlers.authentication.login_user") as login_user_mock:
             rv = self.client.post(
                 "/default/login",
-                data={"email": user.email, "password": "password", "remember": True},
+                data={
+                    "csrf_token": self.csrf_token(),
+                    "email": user.email,
+                    "password": "password",
+                    "remember": True,
+                },
             )
             self.assertEqual(rv.status_code, 302)
             login_user_mock.assert_called_with(user, remember=True)
@@ -173,7 +188,7 @@ class TestLogin(BaseTestCase):
         with patch("redash.handlers.authentication.login_user") as login_user_mock:
             rv = self.client.post(
                 "/default/login?next=/test",
-                data={"email": user.email, "password": "password"},
+                data={"csrf_token": self.csrf_token(), "email": user.email, "password": "password"},
             )
             self.assertEqual(rv.status_code, 302)
             self.assertEqual(rv.location, "/test")
@@ -181,7 +196,10 @@ class TestLogin(BaseTestCase):
 
     def test_submit_incorrect_user(self):
         with patch("redash.handlers.authentication.login_user") as login_user_mock:
-            rv = self.client.post("/default/login", data={"email": "non-existing", "password": "password"})
+            rv = self.client.post(
+                "/default/login",
+                data={"csrf_token": self.csrf_token(), "email": "non-existing", "password": "password"},
+            )
             self.assertEqual(rv.status_code, 200)
             self.assertFalse(login_user_mock.called)
 
@@ -195,7 +213,11 @@ class TestLogin(BaseTestCase):
         with patch("redash.handlers.authentication.login_user") as login_user_mock:
             rv = self.client.post(
                 "/default/login",
-                data={"email": user.email, "password": "badbadpassword"},
+                data={
+                    "csrf_token": self.csrf_token(),
+                    "email": user.email,
+                    "password": "badbadpassword",
+                },
             )
             self.assertEqual(rv.status_code, 200)
             self.assertFalse(login_user_mock.called)
@@ -204,7 +226,10 @@ class TestLogin(BaseTestCase):
         user = self.factory.user
 
         with patch("redash.handlers.authentication.login_user") as login_user_mock:
-            rv = self.client.post("/default/login", data={"email": user.email, "password": ""})
+            rv = self.client.post(
+                "/default/login",
+                data={"csrf_token": self.csrf_token(), "email": user.email, "password": ""},
+            )
             self.assertEqual(rv.status_code, 200)
             self.assertFalse(login_user_mock.called)
 
@@ -224,7 +249,10 @@ class TestLogin(BaseTestCase):
         self.factory.org.set_setting("auth_password_login_enabled", False)
 
         with patch("redash.handlers.authentication.login_user"):
-            rv = self.client.post("/default/login", data={"email": user.email, "password": "password"})
+            rv = self.client.post(
+                "/default/login",
+                data={"csrf_token": self.csrf_token(), "email": user.email, "password": "password"},
+            )
             self.assertEqual(rv.status_code, 200)
             self.assertIn("Password login is not enabled for your organization", str(rv.data))
 

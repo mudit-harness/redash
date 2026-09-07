@@ -4,6 +4,7 @@ from importlib.util import find_spec
 import requests
 import yaml
 
+from redash import settings
 from redash.query_runner import BaseSQLQueryRunner, register
 from redash.utils.pandas import pandas_installed
 
@@ -94,6 +95,7 @@ class YandexDisk(BaseSQLQueryRunner):
             f"{self.base_url}/{url_path}",
             headers={"Authorization": f"OAuth {token}"},
             params=kwargs,
+            timeout=settings.REQUESTS_TIMEOUT,
         )
 
         response_data = r.json()

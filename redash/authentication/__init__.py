@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import logging
+import math
 import time
 import unicodedata
 from datetime import timedelta
@@ -16,18 +17,23 @@ from redash.authentication import jwt_auth
 from redash.authentication.org_resolving import current_org
 from redash.settings.organization import settings as org_settings
 from redash.tasks import record_event
+from redash.utils import external_url_for
 
 login_manager = LoginManager()
 logger = logging.getLogger("authentication")
 
 
 def get_login_url(external=False, next="/"):
+    # When an absolute URL is requested, build it from trusted configuration
+    # (REDASH_HOST) rather than from the request's spoofable Host header.
+    build_url = external_url_for if external else url_for
+
     if settings.MULTI_ORG and current_org == None:  # noqa: E711
         login_url = "/"
     elif settings.MULTI_ORG:
-        login_url = url_for("redash.login", org_slug=current_org.slug, next=next, _external=external)
+        login_url = build_url("redash.login", org_slug=current_org.slug, next=next)
     else:
-        login_url = url_for("redash.login", next=next, _external=external)
+        login_url = build_url("redash.login", next=next)
 
     return login_url
 
@@ -76,9 +82,30 @@ def request_loader(request):
     return user
 
 
+def parse_expires(value):
+    """Parse a signed URL's `expires` parameter, failing closed.
+
+    Returns 0 (already expired) for missing, malformed or non-finite input, so user supplied values such as
+    "nan", "inf" or "-Infinity" can't reach the expiry comparison: NaN makes every comparison false and the
+    infinities make the window undefined instead of bounded.
+    """
+    if value is None or value == "":
+        return 0.0
+
+    try:
+        expires = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+    if not math.isfinite(expires):
+        return 0.0
+
+    return expires
+
+
 def hmac_load_user_from_request(request):
     signature = request.args.get("signature")
-    expires = float(request.args.get("expires") or 0)
+    expires = parse_expires(request.args.get("expires"))
     query_id = request.view_args.get("query_id", None)
     user_id = request.args.get("user_id", None)
 

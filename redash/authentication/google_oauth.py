@@ -11,6 +11,7 @@ from redash.authentication import (
     logout_and_redirect_to_index,
 )
 from redash.authentication.org_resolving import current_org
+from redash.utils import external_url_for
 
 
 def verify_profile(org, profile):
@@ -31,7 +32,11 @@ def verify_profile(org, profile):
 
 def get_user_profile(access_token, logger):
     headers = {"Authorization": f"OAuth {access_token}"}
-    response = requests.get("https://www.googleapis.com/oauth2/v1/userinfo", headers=headers)
+    response = requests.get(
+        "https://www.googleapis.com/oauth2/v1/userinfo",
+        headers=headers,
+        timeout=settings.REQUESTS_SHORT_TIMEOUT,
+    )
 
     if response.status_code == 401:
         logger.warning("Failed getting user profile (response code 401).")
@@ -41,12 +46,29 @@ def get_user_profile(access_token, logger):
 
 
 def build_redirect_uri():
+    # The OAuth redirect URI is handed to Google, which sends the user (and the
+    # authorization code) back to it, so it must come from trusted configuration
+    # (REDASH_HOST) and not from the request's spoofable Host header.
     scheme = settings.GOOGLE_OAUTH_SCHEME_OVERRIDE or None
-    return url_for(".callback", _external=True, _scheme=scheme)
+    return external_url_for(".callback", _scheme=scheme)
+
+
+def get_safe_next_path(unsafe_next_path):
+    """Return a same-origin ``next`` target, or None when it isn't usable.
+
+    ``get_next_path()`` rejects off-site targets (absolute URLs to foreign hosts,
+    scheme-relative "//evil.com", non-http(s) schemes, backslash/control-character
+    tricks) by returning its "./" sentinel, and returns "" for an empty target.
+    In both cases we drop the value so callers fall back to a safe default.
+    """
+    safe_next_path = get_next_path(unsafe_next_path)
+    if not safe_next_path or safe_next_path == "./":
+        return None
+    return safe_next_path
 
 
 def build_next_path(org_slug=None):
-    next_path = request.args.get("next")
+    next_path = get_safe_next_path(request.args.get("next"))
     if not next_path:
         if org_slug is None:
             org_slug = session.get("org_slug")
@@ -55,10 +77,11 @@ def build_next_path(org_slug=None):
         if settings.GOOGLE_OAUTH_SCHEME_OVERRIDE:
             scheme = settings.GOOGLE_OAUTH_SCHEME_OVERRIDE
 
-        next_path = url_for(
+        # Absolute URL built from trusted configuration (REDASH_HOST) instead of
+        # the request's Host header, which a client can spoof.
+        next_path = external_url_for(
             "redash.index",
             org_slug=org_slug,
-            _external=True,
             _scheme=scheme,
         )
     return next_path
@@ -82,7 +105,8 @@ def create_google_oauth_blueprint(app):
     @blueprint.route("/<org_slug>/oauth/google", endpoint="authorize_org")
     def org_login(org_slug):
         session["org_slug"] = current_org.slug
-        return redirect(url_for(".authorize", next=request.args.get("next", None)))
+        next_path = get_safe_next_path(request.args.get("next"))
+        return redirect(url_for(".authorize", next=next_path))
 
     @blueprint.route("/oauth/google", endpoint="authorize")
     def login():

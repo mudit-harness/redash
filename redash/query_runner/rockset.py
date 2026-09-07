@@ -1,5 +1,6 @@
 import requests
 
+from redash import settings
 from redash.query_runner import (
     TYPE_BOOLEAN,
     TYPE_FLOAT,
@@ -35,10 +36,10 @@ class RocksetAPI:
         url = "{}/v1/orgs/self/{}".format(self.api_server, endpoint)
 
         if method == "GET":
-            r = requests.get(url, headers=headers)
+            r = requests.get(url, headers=headers, timeout=settings.REQUESTS_TIMEOUT)
             return r.json()
         elif method == "POST":
-            r = requests.post(url, headers=headers, json=body)
+            r = requests.post(url, headers=headers, json=body, timeout=settings.REQUESTS_TIMEOUT)
             return r.json()
         else:
             raise "Unknown method: {}".format(method)

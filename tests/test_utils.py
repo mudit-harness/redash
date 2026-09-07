@@ -2,8 +2,9 @@ from collections import namedtuple
 from unittest import TestCase
 
 import pytest
+from mock import patch
 
-from redash import create_app
+from redash import create_app, settings
 from redash.query_runner import (
     TYPE_BOOLEAN,
     TYPE_DATE,
@@ -15,10 +16,12 @@ from redash.query_runner import (
 from redash.utils import (
     build_url,
     collect_parameters_from_request,
+    external_url_for,
     filter_none,
     generate_token,
     json_dumps,
     render_template,
+    trusted_origin,
 )
 from redash.utils.pandas import pandas_installed
 
@@ -69,6 +72,59 @@ class TestBuildUrl(TestCase):
             "http://example.com:443/test",
             build_url(DummyRequest("example.com:443", "http"), "example.com", "/test"),
         )
+
+
+class TestTrustedOrigin(TestCase):
+    def test_returns_none_when_host_is_not_configured(self):
+        with patch.object(settings, "HOST", ""):
+            self.assertIsNone(trusted_origin())
+
+    def test_normalizes_the_configured_host(self):
+        cases = [
+            ("https://redash.example.com", "https://redash.example.com"),
+            ("https://redash.example.com/", "https://redash.example.com"),
+            ("http://redash.example.com:5000", "http://redash.example.com:5000"),
+            ("redash.example.com", "http://redash.example.com"),
+        ]
+
+        for configured_host, expected in cases:
+            with patch.object(settings, "HOST", configured_host):
+                self.assertEqual(trusted_origin(), expected, configured_host)
+
+    def test_scheme_override_wins_over_the_configured_scheme(self):
+        with patch.object(settings, "HOST", "http://redash.example.com"):
+            self.assertEqual(trusted_origin("https"), "https://redash.example.com")
+
+
+class TestExternalUrlFor(TestCase):
+    SPOOFED_BASE_URL = "http://evil.example.com/"
+
+    def setUp(self):
+        self.app = create_app()
+
+    def build(self, host, **values):
+        with self.app.test_request_context("/myorg/", base_url=self.SPOOFED_BASE_URL):
+            with patch.object(settings, "HOST", host):
+                return external_url_for("redash.index", org_slug="myorg", **values)
+
+    def test_uses_the_configured_host_and_not_the_request_host(self):
+        url = self.build("https://redash.example.com")
+
+        self.assertEqual(url, "https://redash.example.com/myorg/")
+        self.assertNotIn("evil.example.com", url)
+
+    def test_honours_the_scheme_override(self):
+        url = self.build("http://redash.example.com", _scheme="https")
+
+        self.assertEqual(url, "https://redash.example.com/myorg/")
+
+    def test_ignores_an_empty_scheme_override(self):
+        url = self.build("https://redash.example.com", _scheme="")
+
+        self.assertEqual(url, "https://redash.example.com/myorg/")
+
+    def test_falls_back_to_the_request_when_no_host_is_configured(self):
+        self.assertEqual(self.build(""), "{}myorg/".format(self.SPOOFED_BASE_URL))
 
 
 class TestCollectParametersFromRequest(TestCase):

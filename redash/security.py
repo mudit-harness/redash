@@ -20,6 +20,24 @@ def csp_allows_embeding(fn):
     return talisman(content_security_policy=embedable_csp, frame_options=None)(decorated)
 
 
+def csrf_protect_form(fn):
+    """Validate the CSRF token of unsafe requests to a server-rendered form.
+
+    The HTML forms Redash renders itself (login, invite, password reset) always
+    embed ``csrf_token()``, so their token is validated regardless of the
+    ``ENFORCE_CSRF`` setting, which is opt-in and only guards the API.
+    """
+
+    @functools.wraps(fn)
+    def decorated(*args, **kwargs):
+        # ``protect`` only inspects the methods listed in WTF_CSRF_METHODS,
+        # so rendering the form with a GET request is unaffected.
+        csrf.protect()
+        return fn(*args, **kwargs)
+
+    return decorated
+
+
 def init_app(app):
     csrf.init_app(app)
     app.config["WTF_CSRF_CHECK_DEFAULT"] = False

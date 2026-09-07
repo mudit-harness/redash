@@ -163,7 +163,9 @@ dev = [
     "ruff==0.0.289",
 ]
 
+# Cooldown: don't resolve package versions published in the last 7 days, to avoid freshly published malicious or unstable releases.
 [tool.uv]
+exclude-newer = "7 days"
 package = false
 default-groups = []
 

@@ -14,9 +14,18 @@ const ESLintPlugin = require("eslint-webpack-plugin");
 
 const path = require("path");
 
+// Modules loaded dynamically (see scripts/README.md) must live inside this
+// project, so a crafted module path (e.g. via REDASH_WEBPACK_OVERRIDES) cannot
+// be used to read or execute arbitrary files outside of the repository.
+const projectRoot = path.join(__dirname, path.sep);
+
 function optionalRequire(module, defaultReturn = undefined) {
+  let modulePath;
   try {
-    require.resolve(module);
+    // Resolution is anchored to this file's directory: relative requests are
+    // resolved against it, and bare specifiers resolve through this
+    // directory's node_modules chain, which lives inside the project root.
+    modulePath = require.resolve(module, { paths: [__dirname] });
   } catch (e) {
     if (e && e.code === "MODULE_NOT_FOUND") {
       // Module was not found, return default value if any
@@ -24,7 +33,14 @@ function optionalRequire(module, defaultReturn = undefined) {
     }
     throw e;
   }
-  return require(module);
+
+  if (!modulePath.startsWith(projectRoot)) {
+    throw new Error(
+      `Refusing to load "${module}": module resolved outside of the project directory.`
+    );
+  }
+
+  return require(modulePath);
 }
 
 // Load optionally configuration object (see scripts/README)
@@ -228,7 +244,7 @@ const config = {
             if (m) return `images/${m[1]}`;
             // For images from node_modules or elsewhere, flatten to avoid deep paths
             const parts = filePath.split("/");
-            return `images/${parts[parts.length - 1]}`;
+            return `images/${parts.at(-1)}`;
           }
         }
       },

@@ -4,6 +4,7 @@ from base64 import b64decode
 
 import requests
 
+from redash import settings
 from redash.query_runner import (
     TYPE_DATE,
     TYPE_DATETIME,
@@ -152,7 +153,7 @@ class GoogleAnalytics4(BaseQueryRunner):
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {access_token}"}
 
         url = ga_report_endpoint.replace("{propertyId}", str(property_id))
-        r = requests.post(url, json=params, headers=headers)
+        r = requests.post(url, json=params, headers=headers, timeout=settings.REQUESTS_TIMEOUT)
         r.raise_for_status()
 
         raw_result = r.json()
@@ -172,7 +173,7 @@ class GoogleAnalytics4(BaseQueryRunner):
 
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {access_token}"}
 
-            r = requests.get(url, headers=headers)
+            r = requests.get(url, headers=headers, timeout=settings.REQUESTS_TIMEOUT)
             r.raise_for_status()
         except Exception as e:
             raise Exception(e)

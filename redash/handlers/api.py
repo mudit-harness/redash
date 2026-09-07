@@ -111,7 +111,15 @@ def json_representation(data, code, headers=None):
     # Flask-Restful checks only for flask.Response but flask-login uses werkzeug.wrappers.Response
     if isinstance(data, Response):
         return data
-    resp = make_response(json_dumps(data), code)
+    # Declare the JSON media type on the response itself rather than relying on
+    # Flask's text/html default, and forbid MIME sniffing: API payloads embed
+    # user-authored data (query text, names, cell values), so a browser must never
+    # be allowed to render one as HTML (CWE-79).
+    resp = make_response(
+        json_dumps(data),
+        code,
+        {"Content-Type": "application/json", "X-Content-Type-Options": "nosniff"},
+    )
     resp.headers.extend(headers or {})
     return resp
 

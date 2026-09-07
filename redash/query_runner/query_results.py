@@ -16,6 +16,7 @@ from redash.query_runner import (
     register,
 )
 from redash.utils import json_dumps
+from redash.utils.sql import InvalidIdentifierError, validate_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -90,9 +91,7 @@ def create_tables_from_query_ids(user, connection, query_ids, query_params, cach
 
     for query in set(query_params):
         results = get_query_results(user, query[0], False, query[1])
-        table_hash = hashlib.md5(
-            "query_{query}_{hash}".format(query=query[0], hash=query[1]).encode(), usedforsecurity=False
-        ).hexdigest()
+        table_hash = hashlib.sha256("query_{query}_{hash}".format(query=query[0], hash=query[1]).encode()).hexdigest()
         table_name = "query_{query_id}_{param_hash}".format(query_id=query[0], param_hash=table_hash)
         create_table(connection, table_name, results)
 
@@ -118,6 +117,15 @@ def flatten(value):
 
 
 def create_table(connection, table_name, query_results):
+    # The table name and the column names are identifiers, which SQLite doesn't accept
+    # as bound parameters: validate the table name and quote the column names so that
+    # neither can break out of its identifier position. Row values below are always
+    # passed as bound parameters.
+    try:
+        table_name = validate_identifier(table_name, "table name")
+    except InvalidIdentifierError as exc:
+        raise CreateTableError(str(exc))
+
     try:
         columns = [column["name"] for column in query_results["columns"]]
         safe_columns = [fix_column_name(column) for column in columns]
@@ -144,8 +152,8 @@ def create_table(connection, table_name, query_results):
 
 def prepare_parameterized_query(query, query_params):
     for params in query_params:
-        table_hash = hashlib.md5(
-            "query_{query}_{hash}".format(query=params[0], hash=params[1]).encode(), usedforsecurity=False
+        table_hash = hashlib.sha256(
+            "query_{query}_{hash}".format(query=params[0], hash=params[1]).encode()
         ).hexdigest()
         key = "param_query_{query_id}_{{{param_string}}}".format(query_id=params[0], param_string=params[1])
         value = "query_{query_id}_{param_hash}".format(query_id=params[0], param_hash=table_hash)

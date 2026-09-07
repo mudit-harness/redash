@@ -1,4 +1,4 @@
-from flask import request, url_for
+from flask import request
 from flask_restful import abort
 from funcy import partial, project
 from sqlalchemy.orm.exc import StaleDataError
@@ -19,6 +19,7 @@ from redash.permissions import (
 )
 from redash.security import csp_allows_embeding
 from redash.serializers import DashboardSerializer, public_dashboard
+from redash.utils import external_url_for
 
 # Ordering map for relationships
 order_map = {
@@ -184,11 +185,12 @@ class DashboardResource(BaseResource):
 
         api_key = models.ApiKey.get_by_object(dashboard)
         if api_key:
-            response["public_url"] = url_for(
+            # Absolute URL built from trusted configuration (REDASH_HOST) instead
+            # of the request's Host header, which a client can spoof.
+            response["public_url"] = external_url_for(
                 "redash.public_dashboard",
                 token=api_key.api_key,
                 org_slug=self.current_org.slug,
-                _external=True,
             )
             response["api_key"] = api_key.api_key
 
@@ -309,11 +311,12 @@ class DashboardShareResource(BaseResource):
         models.db.session.flush()
         models.db.session.commit()
 
-        public_url = url_for(
+        # Absolute URL built from trusted configuration (REDASH_HOST) instead of
+        # the request's Host header, which a client can spoof.
+        public_url = external_url_for(
             "redash.public_dashboard",
             token=api_key.api_key,
             org_slug=self.current_org.slug,
-            _external=True,
         )
 
         self.record_event(

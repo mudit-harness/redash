@@ -14,9 +14,6 @@ on:
         required: false
         default: ''
 
-env:
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
 permissions:
   actions: write
   contents: write
@@ -26,11 +23,17 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref_name == github.event.repository.default_branch
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ssh-key: ${{ secrets.ACTION_PUSH_KEY }}
 
-      - run: |
+      - env:
+          # Scoped to this step only: the `gh` CLI call below is the sole consumer.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          BUMP_INPUT_VALUE: ${{ github.event.inputs.bump }}
+          SPECIFIC_VERSION_INPUT: ${{ github.event.inputs.version }}
+        run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
@@ -44,9 +47,9 @@ jobs:
           }
 
           # Determine the new version tag
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            BUMP_INPUT="${{ github.event.inputs.bump }}"
-            SPECIFIC_VERSION="${{ github.event.inputs.version }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            BUMP_INPUT="$BUMP_INPUT_VALUE"
+            SPECIFIC_VERSION="$SPECIFIC_VERSION_INPUT"
 
             # Check if both bump and specific version are provided
             if [ "$BUMP_INPUT" = "true" ] && [ -n "$SPECIFIC_VERSION" ]; then

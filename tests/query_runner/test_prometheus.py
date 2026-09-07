@@ -4,6 +4,7 @@ from unittest import TestCase
 
 import mock
 
+from redash import settings
 from redash.query_runner.prometheus import Prometheus, get_instant_rows, get_range_rows
 
 
@@ -229,7 +230,7 @@ class TestPrometheus(TestCase):
         connected = prometheus.test_connection()
 
         self.assertTrue(connected)
-        requests_get_mock.assert_called_once_with("url", **prometheus_kwargs)
+        requests_get_mock.assert_called_once_with("url", timeout=settings.REQUESTS_TIMEOUT, **prometheus_kwargs)
         cleanup_cert_files_mock.assert_called_once_with(prometheus_kwargs)
 
         cleanup_cert_files_mock.reset_mock()
@@ -244,7 +245,7 @@ class TestPrometheus(TestCase):
         connected = prometheus.test_connection()
 
         self.assertFalse(connected)
-        requests_get_mock.assert_called_once_with("url", **prometheus_kwargs)
+        requests_get_mock.assert_called_once_with("url", timeout=settings.REQUESTS_TIMEOUT, **prometheus_kwargs)
         cleanup_cert_files_mock.assert_called_once_with(prometheus_kwargs)
 
         cleanup_cert_files_mock.reset_mock()
@@ -261,7 +262,7 @@ class TestPrometheus(TestCase):
 
         self.assertFalse(connected)
         self.assertEqual(str(exception_obj.exception), "test exception")
-        requests_get_mock.assert_called_once_with("url", **prometheus_kwargs)
+        requests_get_mock.assert_called_once_with("url", timeout=settings.REQUESTS_TIMEOUT, **prometheus_kwargs)
         cleanup_cert_files_mock.assert_called_once_with(prometheus_kwargs)
 
     @mock.patch("redash.query_runner.prometheus.requests.get")
@@ -280,7 +281,9 @@ class TestPrometheus(TestCase):
         schema = prometheus.get_schema()
 
         self.assertEqual(schema, [{"name": "name1", "columns": []}, {"name": "name2", "columns": []}])
-        requests_get_mock.assert_called_once_with("url/api/v1/label/__name__/values", **prometheus_kwargs)
+        requests_get_mock.assert_called_once_with(
+            "url/api/v1/label/__name__/values", timeout=settings.REQUESTS_TIMEOUT, **prometheus_kwargs
+        )
         cleanup_cert_files_mock.assert_called_once_with(prometheus_kwargs)
 
         cleanup_cert_files_mock.reset_mock()
@@ -295,7 +298,9 @@ class TestPrometheus(TestCase):
         schema = prometheus.get_schema()
 
         self.assertEqual(schema, [])
-        requests_get_mock.assert_called_once_with("url/api/v1/label/__name__/values", **prometheus_kwargs)
+        requests_get_mock.assert_called_once_with(
+            "url/api/v1/label/__name__/values", timeout=settings.REQUESTS_TIMEOUT, **prometheus_kwargs
+        )
         cleanup_cert_files_mock.assert_called_once_with(prometheus_kwargs)
 
         cleanup_cert_files_mock.reset_mock()
@@ -312,7 +317,9 @@ class TestPrometheus(TestCase):
 
         self.assertEqual(schema, [])
         self.assertEqual(str(exception_obj.exception), "test exception")
-        requests_get_mock.assert_called_once_with("url/api/v1/label/__name__/values", **prometheus_kwargs)
+        requests_get_mock.assert_called_once_with(
+            "url/api/v1/label/__name__/values", timeout=settings.REQUESTS_TIMEOUT, **prometheus_kwargs
+        )
         cleanup_cert_files_mock.assert_called_once_with(prometheus_kwargs)
 
     @mock.patch("redash.query_runner.prometheus.requests.get")
@@ -360,7 +367,10 @@ class TestPrometheus(TestCase):
         self.assertEqual(data, data_expected)
         self.assertIsNone(error)
         requests_get_mock.assert_called_once_with(
-            "url/api/v1/query", params={"query": ["http_requests_total"]}, **prometheus_kwargs
+            "url/api/v1/query",
+            params={"query": ["http_requests_total"]},
+            timeout=settings.REQUESTS_TIMEOUT,
+            **prometheus_kwargs,
         )
         cleanup_cert_files_mock.assert_called_once_with(prometheus_kwargs)
 
@@ -378,7 +388,10 @@ class TestPrometheus(TestCase):
         self.assertIsNone(data)
         self.assertEqual(error, "query result is empty.")
         requests_get_mock.assert_called_once_with(
-            "url/api/v1/query", params={"query": ["http_requests_total"]}, **prometheus_kwargs
+            "url/api/v1/query",
+            params={"query": ["http_requests_total"]},
+            timeout=settings.REQUESTS_TIMEOUT,
+            **prometheus_kwargs,
         )
         cleanup_cert_files_mock.assert_called_once_with(prometheus_kwargs)
 
@@ -445,6 +458,7 @@ class TestPrometheus(TestCase):
                 "end": [end_timestamp_expected],
                 "step": ["60s"],
             },
+            timeout=settings.REQUESTS_TIMEOUT,
             **prometheus_kwargs,
         )
         cleanup_cert_files_mock.assert_called_once_with(prometheus_kwargs)
@@ -512,6 +526,7 @@ class TestPrometheus(TestCase):
                 "end": [end_timestamp_expected],
                 "step": ["60s"],
             },
+            timeout=settings.REQUESTS_TIMEOUT,
             **prometheus_kwargs,
         )
         cleanup_cert_files_mock.assert_called_once_with(prometheus_kwargs)
@@ -534,6 +549,9 @@ class TestPrometheus(TestCase):
         self.assertIsNone(error)
         self.assertEqual(str(exception_obj.exception), "test exception")
         requests_get_mock.assert_called_once_with(
-            "url/api/v1/query", params={"query": ["http_requests_total"]}, **prometheus_kwargs
+            "url/api/v1/query",
+            params={"query": ["http_requests_total"]},
+            timeout=settings.REQUESTS_TIMEOUT,
+            **prometheus_kwargs,
         )
         cleanup_cert_files_mock.assert_called_once_with(prometheus_kwargs)

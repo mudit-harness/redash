@@ -1,9 +1,12 @@
+import json
+import os
 from datetime import datetime
 from unittest import TestCase
 
 import mock
+from RestrictedPython.transformer import IOPERATOR_TO_STR
 
-from redash.query_runner.python import Python
+from redash.query_runner.python import INPLACE_OPERATORS, Python
 from tests import BaseTestCase
 
 
@@ -113,6 +116,126 @@ class TestPythonQueryRunner(TestCase):
         self.assertIsNone(data)
         self.assertIsNotNone(error)
         self.assertFalse(hasattr(self.python.get_current_user, "compromised"))
+
+    def test_getattr_blocks_modules_outside_the_allowlist(self):
+        python = Python({"allowedImportModules": "json"})
+
+        with self.assertRaisesRegex(Exception, "not configured as a supported import module"):
+            python.custom_get_attr(json.decoder, "re")
+
+    def test_getattr_allows_submodules_of_allowed_modules(self):
+        python = Python({"allowedImportModules": "json"})
+
+        self.assertIs(json.decoder, python.custom_get_attr(json, "decoder"))
+
+    def test_getattr_allows_non_module_attributes(self):
+        self.assertEqual("ABC", self.python.custom_get_attr("abc", "upper")())
+
+    def test_getattr_still_blocks_private_attributes(self):
+        with self.assertRaisesRegex(AttributeError, "__class__"):
+            self.python.custom_get_attr((), "__class__")
+
+    def test_script_cannot_reach_denied_module_through_allowed_module(self):
+        python = Python({"allowedImportModules": "json"})
+
+        data, error = python.run_query("import json\nresult = json.decoder.re", "user")
+
+        self.assertIsNone(data)
+        self.assertIn("not configured as a supported import module", error)
+
+    def test_getattr_blocks_attribute_access_on_denied_module(self):
+        python = Python({"allowedImportModules": "json"})
+
+        with self.assertRaisesRegex(Exception, "not configured as a supported import module"):
+            python.custom_get_attr(os, "system")
+
+    def test_import_rejects_module_outside_allowlist(self):
+        python = Python({"allowedImportModules": "json"})
+
+        with self.assertRaisesRegex(Exception, "not configured as a supported import module"):
+            python.custom_import("os")
+
+    def test_import_is_not_attempted_for_denied_module(self):
+        """The allow-list must be checked before the import, which runs module level code."""
+        python = Python({"allowedImportModules": "json"})
+
+        with mock.patch("redash.query_runner.python.importlib.import_module") as import_module:
+            with self.assertRaisesRegex(Exception, "not configured as a supported import module"):
+                python.custom_import("os")
+
+        import_module.assert_not_called()
+
+    def test_import_allowlist_is_not_a_bare_prefix_match(self):
+        python = Python({"allowedImportModules": "jso"})
+
+        with mock.patch("redash.query_runner.python.importlib.import_module") as import_module:
+            with self.assertRaisesRegex(Exception, "not configured as a supported import module"):
+                python.custom_import("json")
+
+        import_module.assert_not_called()
+
+    def test_import_allows_allowlisted_module_and_caches_it(self):
+        python = Python({"allowedImportModules": "json"})
+
+        self.assertIs(json, python.custom_import("json"))
+
+        with mock.patch("redash.query_runner.python.importlib.import_module") as import_module:
+            self.assertIs(json, python.custom_import("json"))
+
+        import_module.assert_not_called()
+
+    def test_import_allows_submodule_of_allowed_module(self):
+        python = Python({"allowedImportModules": "json"})
+
+        self.assertIs(json.decoder, python.custom_import("json.decoder"))
+
+    def test_import_allowlist_entries_are_stripped(self):
+        python = Python({"allowedImportModules": " json , "})
+
+        self.assertEqual(frozenset(["json"]), python._allowed_modules)
+        self.assertIs(json, python.custom_import("json"))
+
+    def test_from_import_cannot_smuggle_denied_module(self):
+        """``from json import codecs`` resolves without ``custom_get_attr``, so reject it here."""
+        python = Python({"allowedImportModules": "json"})
+
+        with self.assertRaisesRegex(Exception, "codecs.*not configured as a supported import module"):
+            python.custom_import("json", fromlist=("codecs",))
+
+    def test_from_import_allows_submodule_of_allowed_module(self):
+        python = Python({"allowedImportModules": "json"})
+
+        self.assertIs(json, python.custom_import("json", fromlist=("decoder",)))
+
+    def test_from_import_allows_non_module_members(self):
+        python = Python({"allowedImportModules": "json"})
+
+        self.assertIs(json, python.custom_import("json", fromlist=("dumps",)))
+
+    def test_script_cannot_import_module_outside_the_allowlist(self):
+        python = Python({"allowedImportModules": "json"})
+
+        data, error = python.run_query("import os", "user")
+
+        self.assertIsNone(data)
+        self.assertIn("not configured as a supported import module", error)
+
+    def test_inplace_operator_applies_augmented_assignment(self):
+        self.assertEqual(3, self.python.custom_inplacevar("+=", 1, 2))
+        self.assertEqual(8, self.python.custom_inplacevar("**=", 2, 3))
+        self.assertEqual([1, 2], self.python.custom_inplacevar("+=", [1], [2]))
+
+    def test_inplace_operator_rejects_unsupported_operator(self):
+        with self.assertRaisesRegex(Exception, "is not supported inplace variable"):
+            self.python.custom_inplacevar("__import__", 1, 2)
+
+    def test_inplace_operator_in_query_string_success(self):
+        query_string = "total = 1\ntotal += 2\nresult = {'rows': [{'total': total}], 'columns': []}"
+
+        data, error = self.python.run_query(query_string, "user")
+
+        self.assertIsNone(error)
+        self.assertEqual([{"total": 3}], data["rows"])
 
 
 class TestPythonQueryRunnerPermissions(BaseTestCase):
@@ -226,3 +349,7 @@ class TestPython(TestCase):
     def test_sorted_safe_builtins(self):
         src = list(Python.safe_builtins)
         assert src == sorted(src), "Python safe_builtins package not sorted."
+
+    def test_inplace_operators_cover_every_restricted_operator(self):
+        """Every augmented assignment RestrictedPython can emit must have a dispatch entry."""
+        self.assertEqual(set(), set(IOPERATOR_TO_STR.values()) - set(INPLACE_OPERATORS))

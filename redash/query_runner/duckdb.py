@@ -11,6 +11,7 @@ from redash.query_runner import (
     InterruptException,
     register,
 )
+from redash.utils.sql import validate_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -84,16 +85,20 @@ class DuckDB(BaseSQLQueryRunner):
         self.con = duckdb.connect(self.dbpath)
         for ext in self.extensions:
             try:
+                # INSTALL/LOAD take an extension name (an identifier), which can't be
+                # passed as a bound parameter, so it is validated before being used.
                 if "." in ext:
                     prefix, name = ext.split(".", 1)
                     if prefix == "community":
+                        name = validate_identifier(name, "extension name")
                         self.con.execute(f"INSTALL {name} FROM community")
                         self.con.execute(f"LOAD {name}")
                     else:
                         raise Exception("Unknown extension prefix.")
                 else:
-                    self.con.execute(f"INSTALL {ext}")
-                    self.con.execute(f"LOAD {ext}")
+                    name = validate_identifier(ext, "extension name")
+                    self.con.execute(f"INSTALL {name}")
+                    self.con.execute(f"LOAD {name}")
             except Exception as e:
                 logger.warning("Failed to load extension %s: %s", ext, e)
 

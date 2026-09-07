@@ -194,6 +194,28 @@ class TestAlertRenderTemplate(BaseTestCase):
         result = alert.render_template(textwrap.dedent(custom_alert))
         self.assertMultiLineEqual(result, textwrap.dedent(expected))
 
+    def render_default_mail_body(self, alert):
+        with open(settings.REDASH_ALERTS_DEFAULT_MAIL_BODY_TEMPLATE_FILE) as f:
+            return alert.render_template(f.read())
+
+    def test_render_default_mail_body_keeps_status_class(self):
+        alert = self.create_alert(get_results(1))
+        result = self.render_default_mail_body(alert)
+        self.assertIn('<span class="status UNKNOWN">STATUS: UNKNOWN</span>', result)
+
+    def test_render_default_mail_body_escapes_status_attribute(self):
+        # ALERT_STATUS is interpolated into the class attribute of the status span, so it must
+        # be escaped: an unescaped value could close the attribute and inject one of its own.
+        alert = self.create_alert(get_results(1))
+        alert.state = 'triggered" onmouseover="alert(1)'
+        result = self.render_default_mail_body(alert)
+        opening_tag = result[result.index("<span") : result.index(">", result.index("<span")) + 1]
+        # Only the two quotes delimiting the class value survive, so the crafted value cannot
+        # close the attribute and turn its payload into a new one.
+        self.assertEqual(2, opening_tag.count('"'))
+        self.assertNotIn('ONMOUSEOVER="', opening_tag)
+        self.assertIn("ALERT(1)", opening_tag)
+
     def test_render_custom_alert_template_query_table(self):
         alert = self.create_alert(get_results(1))
         custom_alert = """

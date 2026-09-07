@@ -4,6 +4,7 @@ import logging
 import jwt
 import requests
 
+from redash import settings
 from redash.query_runner import BaseSQLQueryRunner, register
 from redash.utils import json_loads
 
@@ -78,6 +79,7 @@ class Uptycs(BaseSQLQueryRunner):
             headers=header,
             json=post_data_json,
             verify=self.configuration.get("verify_ssl", True),
+            timeout=settings.REQUESTS_TIMEOUT,
         )
 
         if response.status_code == 200:
@@ -107,7 +109,12 @@ class Uptycs(BaseSQLQueryRunner):
             self.configuration.get("url"),
             self.configuration.get("customer_id"),
         )
-        response = requests.get(url, headers=header, verify=self.configuration.get("verify_ssl", True))
+        response = requests.get(
+            url,
+            headers=header,
+            verify=self.configuration.get("verify_ssl", True),
+            timeout=settings.REQUESTS_TIMEOUT,
+        )
         redash_json = []
         schema = json_loads(response.content)
         for each_def in schema["tables"]:

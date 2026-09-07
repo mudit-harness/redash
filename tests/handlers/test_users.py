@@ -476,7 +476,7 @@ class TestUserDisable(BaseTestCase):
         with patch("redash.handlers.authentication.login_user") as login_user_mock:
             rv = self.post_request(
                 "/login",
-                data={"email": user.email, "password": "password"},
+                data={"csrf_token": self.csrf_token(), "email": user.email, "password": "password"},
                 org=self.factory.org,
             )
             # login handler should not be called

@@ -4,6 +4,29 @@ from unittest.mock import patch
 from redash.query_runner.duckdb import DuckDB
 
 
+class TestDuckDBExtensions(TestCase):
+    def _install_statements(self, extensions) -> list:
+        with patch("redash.query_runner.duckdb.duckdb.connect") as connect:
+            runner = DuckDB({"dbpath": ":memory:", "extensions": extensions})
+            self.assertIs(runner.con, connect.return_value)
+            return [call[0][0] for call in runner.con.execute.call_args_list]
+
+    def test_installs_configured_extension(self) -> None:
+        self.assertEqual(["INSTALL httpfs", "LOAD httpfs"], self._install_statements("httpfs"))
+
+    def test_installs_configured_community_extension(self) -> None:
+        self.assertEqual(
+            ["INSTALL h3 FROM community", "LOAD h3"],
+            self._install_statements("community.h3"),
+        )
+
+    def test_does_not_install_unsafe_extension_name(self) -> None:
+        self.assertEqual([], self._install_statements("httpfs; ATTACH 'evil.db'"))
+
+    def test_does_not_install_unsafe_community_extension_name(self) -> None:
+        self.assertEqual([], self._install_statements("community.h3; ATTACH 'evil.db'"))
+
+
 class TestDuckDBSchema(TestCase):
     def setUp(self) -> None:
         self.runner = DuckDB({"dbpath": ":memory:"})

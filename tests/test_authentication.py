@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import time
+from urllib.parse import parse_qs, quote, urlparse
 
 import jwcrypto.jwk
 import jwt
@@ -18,12 +19,18 @@ from redash.authentication import (
     hmac_load_user_from_request,
     jwt_auth,
     org_settings,
+    parse_expires,
     sign,
 )
+from redash.authentication.account import send_invite_email
 from redash.authentication.google_oauth import (
+    build_next_path,
+    build_redirect_uri,
     create_and_login_user,
+    get_safe_next_path,
     verify_profile,
 )
+from redash.authentication.saml_auth import get_saml_client
 from tests import BaseTestCase
 
 
@@ -159,6 +166,48 @@ class TestHMACAuthentication(BaseTestCase):
             )
             self.assertEqual(user.id, hmac_load_user_from_request(request).id)
 
+    def test_non_finite_expires_is_rejected(self):
+        for expires in ("nan", "NaN", "NAN", "inf", "Infinity", "-INF", "1e999"):
+            with self.app.test_client() as c:
+                c.get(
+                    self.path,
+                    query_string={
+                        "signature": self.signature(expires),
+                        "expires": expires,
+                    },
+                )
+                self.assertIsNone(hmac_load_user_from_request(request))
+
+    def test_malformed_expires_is_rejected(self):
+        for expires in ("not-a-number", "", "0x10", "1800,5"):
+            with self.app.test_client() as c:
+                c.get(
+                    self.path,
+                    query_string={
+                        "signature": self.signature(expires),
+                        "expires": expires,
+                    },
+                )
+                self.assertIsNone(hmac_load_user_from_request(request))
+
+
+class TestParseExpires(BaseTestCase):
+    def test_returns_float_for_valid_values(self):
+        self.assertEqual(1800.5, parse_expires("1800.5"))
+        self.assertEqual(1800.0, parse_expires(1800))
+
+    def test_fails_closed_for_missing_values(self):
+        self.assertEqual(0, parse_expires(None))
+        self.assertEqual(0, parse_expires(""))
+
+    def test_fails_closed_for_malformed_values(self):
+        self.assertEqual(0, parse_expires("not-a-number"))
+        self.assertEqual(0, parse_expires([]))
+
+    def test_fails_closed_for_non_finite_values(self):
+        for value in ("nan", "NaN", "-nan", "inf", "INF", "Infinity", "-infinity", "1e999"):
+            self.assertEqual(0, parse_expires(value), value)
+
 
 class TestSessionAuthentication(BaseTestCase):
     def test_prefers_api_key_over_session_user_id(self):
@@ -247,6 +296,20 @@ class TestGetLoginUrl(BaseTestCase):
         with self.app.test_request_context("/{}_notexists/".format(self.factory.org.slug)):
             self.assertEqual(get_login_url(next=None), "/")
 
+    def test_external_login_url_is_built_from_the_configured_host(self):
+        with self.app.test_request_context(
+            "/{}/".format(self.factory.org.slug),
+            base_url="http://evil.example.com/",
+        ):
+            with patch.object(settings, "HOST", "https://redash.example.com"):
+                login_url = get_login_url(external=True, next=None)
+
+        self.assertEqual(
+            login_url,
+            "https://redash.example.com/{}/login".format(self.factory.org.slug),
+        )
+        self.assertNotIn("evil.example.com", login_url)
+
 
 class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def setUp(self):
@@ -257,7 +320,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_no_next_param(self):
         response = self.post_request(
             "/login",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "/{}/".format(self.user.org.slug))
@@ -265,7 +328,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_simple_path_in_next_param(self):
         response = self.post_request(
             "/login?next=queries",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "queries")
@@ -273,7 +336,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_starts_scheme_url_in_next_param(self):
         response = self.post_request(
             "/login?next=https://redash.io",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -281,7 +344,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_without_scheme_url_in_next_param(self):
         response = self.post_request(
             "/login?next=//redash.io",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -289,7 +352,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_without_scheme_with_path_url_in_next_param(self):
         response = self.post_request(
             "/login?next=//localhost/queries",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "/queries")
@@ -297,7 +360,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_multiple_slashes_open_redirect(self):
         response = self.post_request(
             "/login?next=////evil.com",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -305,7 +368,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_triple_slash_open_redirect(self):
         response = self.post_request(
             "/login?next=///evil.com/phish",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -313,7 +376,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_multiple_slashes_with_path(self):
         response = self.post_request(
             "/login?next=////evil.com/callback?token=secret",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -321,7 +384,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_file_scheme_open_redirect(self):
         response = self.post_request(
             "/login?next=file:https://evil.com/",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -329,7 +392,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_javascript_scheme_rejected(self):
         response = self.post_request(
             "/login?next=javascript:alert(1)",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -337,7 +400,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_http_scheme_without_netloc_rejected(self):
         response = self.post_request(
             "/login?next=http:///evil.com",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -345,7 +408,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_slash_backslash_redirect_rejected(self):
         response = self.post_request(
             "/login?next=/%5Cevil.com",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -353,10 +416,128 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_data_scheme_rejected(self):
         response = self.post_request(
             "/login?next=data:text/html,<script>alert(1)</script>",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
+
+
+class TestGoogleOAuthNextPath(BaseTestCase):
+    OFF_SITE_NEXT_PARAMS = [
+        "//evil.com",
+        "///evil.com/phish",
+        "////evil.com/callback?token=secret",
+        "http:///evil.com",
+        "/\\evil.com",
+        "\\/evil.com",
+        "\x08//evil.com",
+        "javascript:alert(1)",
+        "data:text/html,<script>alert(1)</script>",
+        "file:https://evil.com/",
+    ]
+
+    def assertOnSite(self, target):
+        parsed = urlparse(target)
+        self.assertEqual(parsed.scheme, "")
+        self.assertEqual(parsed.netloc, "")
+        self.assertFalse(target.replace("\\", "/").startswith("//"))
+
+    def test_relative_next_param_is_preserved(self):
+        self.assertEqual(get_safe_next_path("/queries/5"), "/queries/5")
+        self.assertEqual(get_safe_next_path("queries"), "queries")
+        self.assertEqual(get_safe_next_path("/queries/5?param=1#frag"), "/queries/5?param=1#frag")
+
+    def test_absolute_url_is_reduced_to_its_on_site_path(self):
+        self.assertOnSite(get_safe_next_path("https://evil.com/queries/5"))
+        self.assertEqual(get_safe_next_path("https://evil.com/queries/5"), "/queries/5")
+
+    def test_off_site_next_params_are_rejected(self):
+        for unsafe_next_path in self.OFF_SITE_NEXT_PARAMS:
+            self.assertIsNone(get_safe_next_path(unsafe_next_path), unsafe_next_path)
+
+    def test_empty_next_param_is_rejected(self):
+        self.assertIsNone(get_safe_next_path(None))
+        self.assertIsNone(get_safe_next_path(""))
+
+    def test_build_next_path_keeps_on_site_next_param(self):
+        with self.app.test_request_context("/oauth/google?next=/queries/5"):
+            self.assertEqual(build_next_path(self.factory.org.slug), "/queries/5")
+
+    def test_build_next_path_falls_back_to_org_index(self):
+        for unsafe_next_path in self.OFF_SITE_NEXT_PARAMS:
+            with self.app.test_request_context("/oauth/google", query_string={"next": unsafe_next_path}):
+                next_path = build_next_path(self.factory.org.slug)
+
+            self.assertNotIn("evil.com", next_path)
+            self.assertTrue(next_path.endswith("/{}/".format(self.factory.org.slug)), next_path)
+
+    def test_build_next_path_fallback_is_built_from_the_configured_host(self):
+        with self.app.test_request_context("/oauth/google", base_url="http://evil.example.com/"):
+            with patch.object(settings, "HOST", "https://redash.example.com"):
+                next_path = build_next_path(self.factory.org.slug)
+
+        self.assertEqual(next_path, "https://redash.example.com/{}/".format(self.factory.org.slug))
+        self.assertNotIn("evil.example.com", next_path)
+
+    def test_build_redirect_uri_is_built_from_the_configured_host(self):
+        with self.app.test_request_context("/oauth/google", base_url="http://evil.example.com/"):
+            with patch.object(settings, "HOST", "https://redash.example.com"):
+                redirect_uri = build_redirect_uri()
+
+        self.assertEqual(redirect_uri, "https://redash.example.com/oauth/google_callback")
+        self.assertNotIn("evil.example.com", redirect_uri)
+
+    def test_org_login_forwards_only_on_site_next_param(self):
+        response = self.get_request("/oauth/google?next=/queries/5", org=self.factory.org)
+        self.assertEqual(response.status_code, 302)
+        location = urlparse(response.location)
+        self.assertTrue(location.path.endswith("/oauth/google"), response.location)
+        self.assertEqual(parse_qs(location.query)["next"], ["/queries/5"])
+
+    def test_org_login_drops_off_site_next_param(self):
+        for unsafe_next_path in self.OFF_SITE_NEXT_PARAMS:
+            response = self.get_request(
+                "/oauth/google?next={}".format(quote(unsafe_next_path, safe="")),
+                org=self.factory.org,
+            )
+            self.assertEqual(response.status_code, 302)
+            self.assertNotIn("evil.com", response.location)
+
+
+class TestSamlAssertionConsumerServiceUrl(BaseTestCase):
+    def acs_url(self, scheme_override=""):
+        org = self.factory.org
+
+        with self.app.test_request_context(
+            "/{}/saml/login".format(org.slug),
+            base_url="http://evil.example.com/",
+        ):
+            with patch.object(settings, "HOST", "https://redash.example.com"):
+                with patch.object(settings, "SAML_SCHEME_OVERRIDE", scheme_override):
+                    with patch("redash.authentication.saml_auth.Saml2Client"):
+                        with patch("redash.authentication.saml_auth.Saml2Config") as saml_config:
+                            get_saml_client(org)
+
+        saml_settings = saml_config.return_value.load.call_args[0][0]
+        return saml_settings["service"]["sp"]["endpoints"]["assertion_consumer_service"][0][0]
+
+    def test_acs_url_is_built_from_the_configured_host(self):
+        acs_url = self.acs_url()
+
+        self.assertEqual(
+            acs_url,
+            "https://redash.example.com/{}/saml/callback".format(self.factory.org.slug),
+        )
+        self.assertNotIn("evil.example.com", acs_url)
+
+    def test_scheme_override_still_applies(self):
+        acs_url = self.acs_url(scheme_override="http")
+
+        self.assertEqual(
+            acs_url,
+            "http://redash.example.com/{}/saml/callback".format(self.factory.org.slug),
+        )
+        self.assertNotIn("evil.example.com", acs_url)
 
 
 class TestRemoteUserAuth(BaseTestCase):
@@ -457,7 +638,11 @@ class TestUserForgotPassword(BaseTestCase):
         user = self.factory.create_user()
 
         with patch("redash.handlers.authentication.send_password_reset_email") as send_password_reset_email_mock:
-            response = self.post_request("/forgot", org=user.org, data={"email": user.email})
+            response = self.post_request(
+                "/forgot",
+                org=user.org,
+                data={"csrf_token": self.csrf_token(), "email": user.email},
+            )
             self.assertEqual(response.status_code, 200)
             send_password_reset_email_mock.assert_called_with(user)
 
@@ -472,10 +657,61 @@ class TestUserForgotPassword(BaseTestCase):
         ) as send_password_reset_email_mock, patch(
             "redash.handlers.authentication.send_user_disabled_email"
         ) as send_user_disabled_email_mock:
-            response = self.post_request("/forgot", org=user.org, data={"email": user.email})
+            response = self.post_request(
+                "/forgot",
+                org=user.org,
+                data={"csrf_token": self.csrf_token(), "email": user.email},
+            )
             self.assertEqual(response.status_code, 200)
             send_password_reset_email_mock.assert_not_called()
             send_user_disabled_email_mock.assert_called_with(user)
+
+
+class TestInvitationEmail(BaseTestCase):
+    SPOOFED_BASE_URL = "http://evil.example.com/"
+    CONFIGURED_HOST = "https://redash.example.com"
+
+    def send_invite(self, invited_name="Jane Doe", host=CONFIGURED_HOST):
+        """Render an invitation email for a request carrying a spoofed Host header."""
+        invited = self.factory.create_user(name=invited_name)
+        self.db.session.commit()
+
+        with self.app.test_request_context("/", base_url=self.SPOOFED_BASE_URL):
+            with patch.object(settings, "HOST", host):
+                with patch("redash.authentication.account.send_mail") as send_mail_mock:
+                    send_invite_email(
+                        self.factory.user,
+                        invited,
+                        "{}/invite/token".format(host),
+                        self.factory.org,
+                    )
+
+        args = send_mail_mock.delay.call_args[0]
+        # send_mail(to, subject, html, text)
+        return args[2], args[3]
+
+    def test_account_link_uses_the_configured_host_and_not_the_request_host(self):
+        html_content, text_content = self.send_invite()
+
+        expected = "{}/{}/".format(self.CONFIGURED_HOST, self.factory.org.slug)
+        self.assertIn(expected, html_content)
+        self.assertIn(expected, text_content)
+        self.assertNotIn("evil.example.com", html_content)
+        self.assertNotIn("evil.example.com", text_content)
+
+    def test_html_part_escapes_user_supplied_names(self):
+        html_content, _ = self.send_invite(invited_name="O'Brien & <b>Sons</b>")
+
+        self.assertIn("O&#39;Brien &amp; &lt;b&gt;Sons&lt;/b&gt;", html_content)
+        self.assertNotIn("<b>Sons</b>", html_content)
+
+    def test_text_part_is_not_html_escaped(self):
+        # emails/invite.txt is the text/plain alternative of the multipart email, not a
+        # browser response, so it must stay unescaped: escaping it would show invitees
+        # "O&#39;Brien &amp; Sons" instead of their name.
+        _, text_content = self.send_invite(invited_name="O'Brien & Sons")
+
+        self.assertIn("O'Brien & Sons", text_content)
 
 
 class TestJWTAuthentication(BaseTestCase):

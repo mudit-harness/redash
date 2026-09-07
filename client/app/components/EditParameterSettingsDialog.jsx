@@ -12,6 +12,7 @@ import { wrap as wrapDialog, DialogPropType } from "@/components/DialogWrapper";
 import QuerySelector from "@/components/QuerySelector";
 import { Query } from "@/services/query";
 import { useUniqueId } from "@/lib/hooks/useUniqueId";
+import { compileRegexPattern, isSafeRegexPattern } from "@/lib/safeRegex";
 import "./EditParameterSettingsDialog.less";
 
 const { Option } = Select;
@@ -73,7 +74,7 @@ function EditParameterSettingsDialog(props) {
   const [isNameValid, setIsNameValid] = useState(true);
   const [initialQuery, setInitialQuery] = useState();
   const [userInput, setUserInput] = useState(param.regex || "");
-  const [isValidRegex, setIsValidRegex] = useState(true);
+  const [regexError, setRegexError] = useState(null);
 
   const isNew = !props.parameter.name;
 
@@ -118,14 +119,24 @@ function EditParameterSettingsDialog(props) {
   const paramFormId = useUniqueId("paramForm");
 
   const handleRegexChange = (e) => {
-    setUserInput(e.target.value);
-    try {
-      new RegExp(e.target.value);
-      setParam({ ...param, regex: e.target.value });
-      setIsValidRegex(true);
-    } catch (error) {
-      setIsValidRegex(false);
+    const pattern = e.target.value;
+    setUserInput(pattern);
+
+    // Patterns that are too long or that can backtrack catastrophically are rejected before they
+    // are compiled, so a pathological value cannot freeze this editor - nor, once saved, the
+    // browser of anyone entering a value for the parameter (ReDoS).
+    if (!isSafeRegexPattern(pattern)) {
+      setRegexError("Unsafe Regex Pattern - avoid very long patterns and nested quantifiers such as (a+)+");
+      return;
     }
+
+    if (compileRegexPattern(pattern) === null) {
+      setRegexError("Invalid Regex Pattern");
+      return;
+    }
+
+    setParam({ ...param, regex: pattern });
+    setRegexError(null);
   };
 
   return (
@@ -198,15 +209,11 @@ function EditParameterSettingsDialog(props) {
           </Select>
         </Form.Item>
         {param.type === "text-pattern" && (
-          <Form.Item
-            label="Regex"
-            help={!isValidRegex ? "Invalid Regex Pattern" : "Valid Regex Pattern"}
-            {...formItemProps}
-          >
+          <Form.Item label="Regex" help={regexError || "Valid Regex Pattern"} {...formItemProps}>
             <Input
               value={userInput}
               onChange={handleRegexChange}
-              className={!isValidRegex ? "input-error" : ""}
+              className={regexError ? "input-error" : ""}
               data-test="RegexPatternInput"
             />
           </Form.Item>

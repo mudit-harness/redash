@@ -12,9 +12,10 @@ import {
   union,
   uniq,
   has,
-  identity,
   extend,
   each,
+  keyBy,
+  pickBy,
   some,
   clone,
   find,
@@ -25,8 +26,6 @@ import { Parameter, createParameter } from "./parameters";
 import { currentUser } from "./auth";
 import QueryResult from "./query-result";
 import localOptions from "@/lib/localOptions";
-
-Mustache.escape = identity; // do not html-escape values
 
 const logger = debug("redash:services:query");
 
@@ -157,7 +156,7 @@ export class Query {
         extend(params, param.toUrlParams());
       });
     }
-    Object.keys(params).forEach((key) => params[key] == null && delete params[key]);
+    params = pickBy(params, (value) => value != null);
     params = map(params, (value, name) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join("&");
 
     if (params !== "") {
@@ -220,6 +219,13 @@ class Parameters {
     let parameters = [];
     if (this.query.query !== undefined) {
       try {
+        // Mustache is only used here to *parse* the query text and collect `{{ param }}` names;
+        // nothing is rendered client-side, so `Mustache.escape` is irrelevant to substitution and
+        // must be left at its default. Parameter values are substituted into the SQL server-side by
+        // `mustache_render` (redash/utils), which intentionally does not HTML-escape them.
+        // Never assign `Mustache.escape`: it is module-wide state and would silently disable HTML
+        // escaping for every other `Mustache.render` in the bundle (e.g. the alert notification
+        // template preview in pages/alert/components/NotificationTemplate).
         const parts = Mustache.parse(this.query.query);
         parameters = uniq(collectParams(parts));
       } catch (e) {
@@ -251,10 +257,7 @@ class Parameters {
 
     this.query.options.parameters = this.query.options.parameters || [];
 
-    const parametersMap = {};
-    this.query.options.parameters.forEach((param) => {
-      parametersMap[param.name] = param;
-    });
+    const parametersMap = keyBy(this.query.options.parameters, "name");
 
     parameterNames.forEach((param) => {
       if (!has(parametersMap, param)) {
@@ -328,10 +331,8 @@ class Parameters {
     }
 
     const params = Object.assign(...this.get().map((p) => p.toUrlParams()));
-    Object.keys(params).forEach((key) => params[key] == null && delete params[key]);
-    return Object.keys(params)
-      .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`)
-      .join("&");
+    const definedParams = pickBy(params, (value) => value != null);
+    return map(definedParams, (value, key) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join("&");
   }
 }
 

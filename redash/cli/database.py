@@ -14,6 +14,7 @@ from redash import settings
 from redash.models.base import Column, key_type
 from redash.models.types import EncryptedConfiguration
 from redash.utils.configuration import ConfigurationContainer
+from redash.utils.sql import quote_identifier
 
 manager = AppGroup(help="Manage the database (create/drop tables. reencrypt data.).")
 
@@ -40,7 +41,9 @@ def is_db_empty():
 def load_extensions(db):
     with db.engine.connect() as connection:
         for extension in settings.dynamic_settings.database_extensions:
-            connection.execute(f'CREATE EXTENSION IF NOT EXISTS "{extension}";')
+            # The extension name is an identifier, so it can't be a bound parameter:
+            # quote it to keep it confined to the identifier it is meant to be.
+            connection.execute("CREATE EXTENSION IF NOT EXISTS {};".format(quote_identifier(extension, "extension")))
 
 
 @manager.command(name="create_tables")

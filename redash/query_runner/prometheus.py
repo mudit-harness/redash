@@ -8,6 +8,7 @@ from urllib.parse import parse_qs
 import requests
 from dateutil import parser
 
+from redash import settings
 from redash.query_runner import (
     TYPE_DATETIME,
     TYPE_STRING,
@@ -144,7 +145,9 @@ class Prometheus(BaseQueryRunner):
         promehteus_kwargs = {}
         try:
             promehteus_kwargs = self._get_prometheus_kwargs()
-            resp = requests.get(self.configuration.get("url", None), **promehteus_kwargs)
+            resp = requests.get(
+                self.configuration.get("url", None), timeout=settings.REQUESTS_TIMEOUT, **promehteus_kwargs
+            )
             result = resp.ok
         except Exception:
             raise
@@ -161,7 +164,7 @@ class Prometheus(BaseQueryRunner):
             metrics_path = "/api/v1/label/__name__/values"
             promehteus_kwargs = self._get_prometheus_kwargs()
 
-            response = requests.get(base_url + metrics_path, **promehteus_kwargs)
+            response = requests.get(base_url + metrics_path, timeout=settings.REQUESTS_TIMEOUT, **promehteus_kwargs)
 
             response.raise_for_status()
             data = response.json()["data"]
@@ -222,7 +225,9 @@ class Prometheus(BaseQueryRunner):
 
             promehteus_kwargs = self._get_prometheus_kwargs()
 
-            response = requests.get(api_endpoint, params=payload, **promehteus_kwargs)
+            response = requests.get(
+                api_endpoint, params=payload, timeout=settings.REQUESTS_TIMEOUT, **promehteus_kwargs
+            )
             response.raise_for_status()
 
             metrics = response.json()["data"]["result"]

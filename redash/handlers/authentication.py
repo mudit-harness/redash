@@ -1,3 +1,4 @@
+import hashlib
 import logging
 
 from flask import abort, flash, redirect, render_template, request, url_for
@@ -15,9 +16,32 @@ from redash.authentication.account import (
 )
 from redash.handlers import routes
 from redash.handlers.base import json_response, org_scoped_rule
+from redash.security import csrf_protect_form
+from redash.utils import external_url_for
 from redash.version_check import get_latest_version
 
 logger = logging.getLogger(__name__)
+
+
+def link_reference(value):
+    """Return a short, non-reversible reference to a signed link for logging.
+
+    The invite / password-reset / email-verification links are credentials: anyone
+    who reads them from the logs can complete the flow on the user's behalf, so the
+    raw value must never be logged. A truncated SHA-256 digest is stable enough to
+    correlate a user report with a log entry without disclosing the credential.
+    """
+    if not value:
+        return "<missing>"
+    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:12]
+
+
+def mask_address(value):
+    """Return an email address with the local part masked, for logging."""
+    local, separator, domain = str(value or "").partition("@")
+    if not separator:
+        return "<invalid>"
+    return "{}***@{}".format(local[:1], domain)
 
 
 def get_google_auth_url(next_path):
@@ -30,23 +54,24 @@ def get_google_auth_url(next_path):
 
 def render_token_login_page(template, org_slug, token, invite):
     error_message = None
+    link_ref = link_reference(token)
     try:
         user_id = validate_token(token)
         org = current_org._get_current_object()
         user = models.User.get_by_id_and_org(user_id, org)
     except NoResultFound:
         logger.exception(
-            "Bad user id in token. Token=%s , User id= %s, Org=%s",
-            token,
+            "Bad user id in signed link. ref=%s, user id=%s, org=%s",
+            link_ref,
             user_id,
             org_slug,
         )
         error_message = "Your invite link is invalid. Bad user id in token. Please ask for a new one."
     except SignatureExpired:
-        logger.exception("Token signature has expired. Token: %s, org=%s", token, org_slug)
+        logger.exception("Signature of signed link has expired. ref=%s, org=%s", link_ref, org_slug)
         error_message = "Your invite link has expired. Please ask for a new one."
     except BadSignature:
-        logger.exception("Bad signature for the token: %s, org=%s", token, org_slug)
+        logger.exception("Bad signature for signed link. ref=%s, org=%s", link_ref, org_slug)
         error_message = "Your invite link is invalid. Bad signature. Please double-check the token."
 
     if error_message:
@@ -107,11 +132,13 @@ def render_token_login_page(template, org_slug, token, invite):
 
 
 @routes.route(org_scoped_rule("/invite/<token>"), methods=["GET", "POST"])
+@csrf_protect_form
 def invite(token, org_slug=None):
     return render_token_login_page("invite.html", org_slug, token, True)
 
 
 @routes.route(org_scoped_rule("/reset/<token>"), methods=["GET", "POST"])
+@csrf_protect_form
 def reset(token, org_slug=None):
     return render_token_login_page("reset.html", org_slug, token, False)
 
@@ -123,7 +150,8 @@ def verify(token, org_slug=None):
         org = current_org._get_current_object()
         user = models.User.get_by_id_and_org(user_id, org)
     except (BadSignature, NoResultFound):
-        logger.exception("Failed to verify email verification token: %s, org=%s", token, org_slug)
+        link_ref = link_reference(token)
+        logger.exception("Failed to verify email verification link. ref=%s, org=%s", link_ref, org_slug)
         return (
             render_template(
                 "error.html",
@@ -144,6 +172,7 @@ def verify(token, org_slug=None):
 
 @routes.route(org_scoped_rule("/forgot"), methods=["GET", "POST"])
 @limiter.limit(settings.THROTTLE_PASS_RESET_PATTERN)
+@csrf_protect_form
 def forgot_password(org_slug=None):
     if not current_org.get_setting("auth_password_login_enabled"):
         abort(404)
@@ -160,7 +189,8 @@ def forgot_password(org_slug=None):
             else:
                 send_password_reset_email(user)
         except NoResultFound:
-            logging.error("No user found for forgot password: %s", email)
+            masked_address = mask_address(email)
+            logging.error("No user found for reset request: %s", masked_address)
 
     return render_template("forgot.html", submitted=submitted)
 
@@ -175,6 +205,7 @@ def verification_email(org_slug=None):
 
 @routes.route(org_scoped_rule("/login"), methods=["GET", "POST"])
 @limiter.limit(settings.THROTTLE_LOGIN_PATTERN)
+@csrf_protect_form
 def login(org_slug=None):
     # We intentionally use == as otherwise it won't actually use the proxy. So weird :O
     # noinspection PyComparisonWithNone
@@ -227,10 +258,12 @@ def logout(org_slug=None):
 
 
 def base_href():
+    # Absolute URL built from trusted configuration (REDASH_HOST) instead of the
+    # request's Host header, which a client can spoof.
     if settings.MULTI_ORG:
-        base_href = url_for("redash.index", _external=True, org_slug=current_org.slug)
+        base_href = external_url_for("redash.index", org_slug=current_org.slug)
     else:
-        base_href = url_for("redash.index", _external=True)
+        base_href = external_url_for("redash.index")
 
     return base_href
 
