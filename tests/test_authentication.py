@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import time
+from urllib.parse import parse_qs, quote, urlparse
 
 import jwcrypto.jwk
 import jwt
@@ -22,7 +23,9 @@ from redash.authentication import (
     sign,
 )
 from redash.authentication.google_oauth import (
+    build_next_path,
     create_and_login_user,
+    get_safe_next_path,
     verify_profile,
 )
 from tests import BaseTestCase
@@ -400,6 +403,72 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
+
+
+class TestGoogleOAuthNextPath(BaseTestCase):
+    OFF_SITE_NEXT_PARAMS = [
+        "//evil.com",
+        "///evil.com/phish",
+        "////evil.com/callback?token=secret",
+        "http:///evil.com",
+        "/\\evil.com",
+        "\\/evil.com",
+        "\x08//evil.com",
+        "javascript:alert(1)",
+        "data:text/html,<script>alert(1)</script>",
+        "file:https://evil.com/",
+    ]
+
+    def assertOnSite(self, target):
+        parsed = urlparse(target)
+        self.assertEqual(parsed.scheme, "")
+        self.assertEqual(parsed.netloc, "")
+        self.assertFalse(target.replace("\\", "/").startswith("//"))
+
+    def test_relative_next_param_is_preserved(self):
+        self.assertEqual(get_safe_next_path("/queries/5"), "/queries/5")
+        self.assertEqual(get_safe_next_path("queries"), "queries")
+        self.assertEqual(get_safe_next_path("/queries/5?param=1#frag"), "/queries/5?param=1#frag")
+
+    def test_absolute_url_is_reduced_to_its_on_site_path(self):
+        self.assertOnSite(get_safe_next_path("https://evil.com/queries/5"))
+        self.assertEqual(get_safe_next_path("https://evil.com/queries/5"), "/queries/5")
+
+    def test_off_site_next_params_are_rejected(self):
+        for unsafe_next_path in self.OFF_SITE_NEXT_PARAMS:
+            self.assertIsNone(get_safe_next_path(unsafe_next_path), unsafe_next_path)
+
+    def test_empty_next_param_is_rejected(self):
+        self.assertIsNone(get_safe_next_path(None))
+        self.assertIsNone(get_safe_next_path(""))
+
+    def test_build_next_path_keeps_on_site_next_param(self):
+        with self.app.test_request_context("/oauth/google?next=/queries/5"):
+            self.assertEqual(build_next_path(self.factory.org.slug), "/queries/5")
+
+    def test_build_next_path_falls_back_to_org_index(self):
+        for unsafe_next_path in self.OFF_SITE_NEXT_PARAMS:
+            with self.app.test_request_context("/oauth/google", query_string={"next": unsafe_next_path}):
+                next_path = build_next_path(self.factory.org.slug)
+
+            self.assertNotIn("evil.com", next_path)
+            self.assertTrue(next_path.endswith("/{}/".format(self.factory.org.slug)), next_path)
+
+    def test_org_login_forwards_only_on_site_next_param(self):
+        response = self.get_request("/oauth/google?next=/queries/5", org=self.factory.org)
+        self.assertEqual(response.status_code, 302)
+        location = urlparse(response.location)
+        self.assertTrue(location.path.endswith("/oauth/google"), response.location)
+        self.assertEqual(parse_qs(location.query)["next"], ["/queries/5"])
+
+    def test_org_login_drops_off_site_next_param(self):
+        for unsafe_next_path in self.OFF_SITE_NEXT_PARAMS:
+            response = self.get_request(
+                "/oauth/google?next={}".format(quote(unsafe_next_path, safe="")),
+                org=self.factory.org,
+            )
+            self.assertEqual(response.status_code, 302)
+            self.assertNotIn("evil.com", response.location)
 
 
 class TestRemoteUserAuth(BaseTestCase):

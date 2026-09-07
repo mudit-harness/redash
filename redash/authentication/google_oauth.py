@@ -45,8 +45,22 @@ def build_redirect_uri():
     return url_for(".callback", _external=True, _scheme=scheme)
 
 
+def get_safe_next_path(unsafe_next_path):
+    """Return a same-origin ``next`` target, or None when it isn't usable.
+
+    ``get_next_path()`` rejects off-site targets (absolute URLs to foreign hosts,
+    scheme-relative "//evil.com", non-http(s) schemes, backslash/control-character
+    tricks) by returning its "./" sentinel, and returns "" for an empty target.
+    In both cases we drop the value so callers fall back to a safe default.
+    """
+    safe_next_path = get_next_path(unsafe_next_path)
+    if not safe_next_path or safe_next_path == "./":
+        return None
+    return safe_next_path
+
+
 def build_next_path(org_slug=None):
-    next_path = request.args.get("next")
+    next_path = get_safe_next_path(request.args.get("next"))
     if not next_path:
         if org_slug is None:
             org_slug = session.get("org_slug")
@@ -82,7 +96,8 @@ def create_google_oauth_blueprint(app):
     @blueprint.route("/<org_slug>/oauth/google", endpoint="authorize_org")
     def org_login(org_slug):
         session["org_slug"] = current_org.slug
-        return redirect(url_for(".authorize", next=request.args.get("next", None)))
+        next_path = get_safe_next_path(request.args.get("next"))
+        return redirect(url_for(".authorize", next=next_path))
 
     @blueprint.route("/oauth/google", endpoint="authorize")
     def login():
