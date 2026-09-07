@@ -5,7 +5,7 @@ from itsdangerous import URLSafeTimedSerializer
 
 from redash import settings
 from redash.tasks import send_mail
-from redash.utils import base_url
+from redash.utils import base_url, external_url_for
 
 logger = logging.getLogger(__name__)
 serializer = URLSafeTimedSerializer(settings.SECRET_KEY)
@@ -51,7 +51,16 @@ def send_verify_email(user, org):
 
 
 def send_invite_email(inviter, invited, invite_url, org):
-    context = dict(inviter=inviter, invited=invited, org=org, invite_url=invite_url)
+    context = dict(
+        inviter=inviter,
+        invited=invited,
+        org=org,
+        invite_url=invite_url,
+        # The invitation email used to build this link with `url_for(..., _external=True)`,
+        # which takes its origin from the request's (client controlled) Host header. Build it
+        # from the configured host instead, so a poisoned Host can't point invitees elsewhere.
+        org_url=external_url_for("redash.index", org_slug=org.slug),
+    )
     html_content = render_template("emails/invite.html", **context)
     text_content = render_template("emails/invite.txt", **context)
     subject = "{} invited you to join Redash".format(inviter.name)

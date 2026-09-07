@@ -7,4 +7,4 @@ Use the following link to setup your account:
 {{ invite_url }}
 
 Your sign-in email: {{invited.email}}
-Your Redash account: {{ url_for('redash.index', org_slug=org.slug, _external=True) }}
+Your Redash account: {{ org_url }}

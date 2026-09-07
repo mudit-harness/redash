@@ -22,6 +22,7 @@ from redash.authentication import (
     parse_expires,
     sign,
 )
+from redash.authentication.account import send_invite_email
 from redash.authentication.google_oauth import (
     build_next_path,
     build_redirect_uri,
@@ -664,6 +665,53 @@ class TestUserForgotPassword(BaseTestCase):
             self.assertEqual(response.status_code, 200)
             send_password_reset_email_mock.assert_not_called()
             send_user_disabled_email_mock.assert_called_with(user)
+
+
+class TestInvitationEmail(BaseTestCase):
+    SPOOFED_BASE_URL = "http://evil.example.com/"
+    CONFIGURED_HOST = "https://redash.example.com"
+
+    def send_invite(self, invited_name="Jane Doe", host=CONFIGURED_HOST):
+        """Render an invitation email for a request carrying a spoofed Host header."""
+        invited = self.factory.create_user(name=invited_name)
+        self.db.session.commit()
+
+        with self.app.test_request_context("/", base_url=self.SPOOFED_BASE_URL):
+            with patch.object(settings, "HOST", host):
+                with patch("redash.authentication.account.send_mail") as send_mail_mock:
+                    send_invite_email(
+                        self.factory.user,
+                        invited,
+                        "{}/invite/token".format(host),
+                        self.factory.org,
+                    )
+
+        args = send_mail_mock.delay.call_args[0]
+        # send_mail(to, subject, html, text)
+        return args[2], args[3]
+
+    def test_account_link_uses_the_configured_host_and_not_the_request_host(self):
+        html_content, text_content = self.send_invite()
+
+        expected = "{}/{}/".format(self.CONFIGURED_HOST, self.factory.org.slug)
+        self.assertIn(expected, html_content)
+        self.assertIn(expected, text_content)
+        self.assertNotIn("evil.example.com", html_content)
+        self.assertNotIn("evil.example.com", text_content)
+
+    def test_html_part_escapes_user_supplied_names(self):
+        html_content, _ = self.send_invite(invited_name="O'Brien & <b>Sons</b>")
+
+        self.assertIn("O&#39;Brien &amp; &lt;b&gt;Sons&lt;/b&gt;", html_content)
+        self.assertNotIn("<b>Sons</b>", html_content)
+
+    def test_text_part_is_not_html_escaped(self):
+        # emails/invite.txt is the text/plain alternative of the multipart email, not a
+        # browser response, so it must stay unescaped: escaping it would show invitees
+        # "O&#39;Brien &amp; Sons" instead of their name.
+        _, text_content = self.send_invite(invited_name="O'Brien & Sons")
+
+        self.assertIn("O'Brien & Sons", text_content)
 
 
 class TestJWTAuthentication(BaseTestCase):

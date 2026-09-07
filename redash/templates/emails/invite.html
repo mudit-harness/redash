@@ -13,7 +13,7 @@
 </p>
 <p class="intercom-align-left" style="line-height: 1.5; margin: 0 0 17px; text-align: left !important" align="left">
     Your sign-in email is: {{ invited.email }}<br>
-    Your Redash account is: <a href="{{ url_for('redash.index', org_slug=org.slug, _external=True) }}" target="_blank" style="border: none; color: #1251BA; outline: none !important">{{ url_for('redash.index', org_slug=org.slug, _external=True) }}</a>
+    Your Redash account is: <a href="{{ org_url }}" target="_blank" style="border: none; color: #1251BA; outline: none !important">{{ org_url }}</a>
 </p>
 
 {% endblock %}
