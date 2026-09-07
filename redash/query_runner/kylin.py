@@ -92,6 +92,7 @@ class Kylin(BaseQueryRunner):
                 "acceptPartial": settings.KYLIN_ACCEPT_PARTIAL,
                 "project": kylinproject,
             },
+            timeout=settings.REQUESTS_TIMEOUT,
         )
 
         if not resp.ok:
@@ -113,6 +114,7 @@ class Kylin(BaseQueryRunner):
             os.path.join(url, "api/tables_and_columns"),
             params={"project": kylinproject},
             auth=HTTPBasicAuth(kylinuser, kylinpass),
+            timeout=settings.REQUESTS_TIMEOUT,
         )
 
         resp.raise_for_status()
@@ -122,7 +124,7 @@ class Kylin(BaseQueryRunner):
 
     def test_connection(self):
         url = self.configuration["url"]
-        requests.get(url).raise_for_status()
+        requests.get(url, timeout=settings.REQUESTS_TIMEOUT).raise_for_status()
 
     def get_columns(self, colmetas):
         return self.fetch_columns(

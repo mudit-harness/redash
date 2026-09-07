@@ -1,6 +1,7 @@
 import datetime
 import logging
 
+from redash import settings
 from redash.query_runner import (
     TYPE_BOOLEAN,
     TYPE_DATETIME,
@@ -140,7 +141,7 @@ class Couchbase(BaseQueryRunner):
 
             url = "%s://%s:%s/query/service" % (protocol, host, port)
 
-            r = requests.post(url, params=params, auth=(user, password))
+            r = requests.post(url, params=params, auth=(user, password), timeout=settings.REQUESTS_TIMEOUT)
             r.raise_for_status()
             return r
         except requests.exceptions.HTTPError as err:

@@ -17,6 +17,10 @@ repo = "getredash/redash"
 # a caller supplied revision as a command line option (argument injection).
 GIT_REVISION_RE = re.compile(r"\A[0-9A-Za-z][0-9A-Za-z._/-]*\Z")
 
+# (connect, read) timeout in seconds for the GitHub API calls below. Asset uploads can be
+# slow, but neither phase may hang forever and block the release job.
+GITHUB_REQUEST_TIMEOUT = (10, 120)
+
 
 def validate_git_revision(revision):
     """Return revision unchanged if it is safe to pass to git, raise ValueError otherwise."""
@@ -35,7 +39,7 @@ def _github_request(method, path, params=None, headers={}):
     if params is not None:
         params = simplejson.dumps(params)
 
-    response = requests.request(method, url, data=params, auth=auth)
+    response = requests.request(method, url, data=params, auth=auth, timeout=GITHUB_REQUEST_TIMEOUT)
     return response
 
 
@@ -83,7 +87,14 @@ def upload_asset(release, filepath):
 
     with open(filepath) as file_content:
         headers = {"Content-Type": "application/gzip"}
-        response = requests.post(upload_url, file_content, params={"name": filename}, headers=headers, auth=auth)
+        response = requests.post(
+            upload_url,
+            file_content,
+            params={"name": filename},
+            headers=headers,
+            auth=auth,
+            timeout=GITHUB_REQUEST_TIMEOUT,
+        )
 
     if response.status_code != 201:  # not 200/201/...
         raise exception_from_error("Failed uploading asset", response)

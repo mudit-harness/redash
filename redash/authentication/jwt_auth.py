@@ -4,6 +4,8 @@ import logging
 import jwt
 import requests
 
+from redash import settings
+
 logger = logging.getLogger("jwt_auth")
 
 FILE_SCHEME_PREFIX = "file://"
@@ -19,7 +21,7 @@ def get_public_key_from_file(url):
 
 
 def get_public_key_from_net(url):
-    r = requests.get(url)
+    r = requests.get(url, timeout=settings.REQUESTS_SHORT_TIMEOUT)
     r.raise_for_status()
     data = r.json()
     if "keys" in data:

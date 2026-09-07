@@ -5,6 +5,7 @@ import backoff
 import requests
 import yaml
 
+from redash import settings
 from redash.query_runner import (
     TYPE_DATE,
     TYPE_DATETIME,
@@ -133,6 +134,7 @@ class YandexMetrica(BaseSQLQueryRunner):
             f"{self.url}/{path}",
             headers={"Authorization": f"OAuth {token}"},
             params=kwargs,
+            timeout=settings.REQUESTS_TIMEOUT,
         )
 
         response_data = r.json()

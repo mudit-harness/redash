@@ -6,6 +6,7 @@ import urllib.request
 import requests
 from requests.auth import HTTPBasicAuth
 
+from redash import settings
 from redash.query_runner import (
     TYPE_BOOLEAN,
     TYPE_DATE,
@@ -105,7 +106,7 @@ class BaseElasticSearch(BaseQueryRunner):
         mappings = {}
         error = None
         try:
-            r = requests.get(url, auth=self.auth)
+            r = requests.get(url, auth=self.auth, timeout=settings.REQUESTS_TIMEOUT)
             r.raise_for_status()
 
             mappings = r.json()
@@ -323,7 +324,11 @@ class BaseElasticSearch(BaseQueryRunner):
 
     def test_connection(self):
         try:
-            r = requests.get("{0}/_cluster/health".format(self.server_url), auth=self.auth)
+            r = requests.get(
+                "{0}/_cluster/health".format(self.server_url),
+                auth=self.auth,
+                timeout=settings.REQUESTS_TIMEOUT,
+            )
             r.raise_for_status()
         except requests.HTTPError as e:
             logger.exception(e)
@@ -340,7 +345,7 @@ class Kibana(BaseElasticSearch):
 
     def _execute_simple_query(self, url, auth, _from, mappings, result_fields, result_columns, result_rows):
         url += "&from={0}".format(_from)
-        r = requests.get(url, auth=self.auth)
+        r = requests.get(url, auth=self.auth, timeout=settings.REQUESTS_TIMEOUT)
         r.raise_for_status()
 
         raw_result = r.json()
@@ -454,7 +459,7 @@ class ElasticSearch(BaseElasticSearch):
 
             logger.debug("Using URL: %s", url)
             logger.debug("Using query: %s", query_dict)
-            r = requests.get(url, json=query_dict, auth=self.auth)
+            r = requests.get(url, json=query_dict, auth=self.auth, timeout=settings.REQUESTS_TIMEOUT)
             r.raise_for_status()
             logger.debug("Result: %s", r.json())
 

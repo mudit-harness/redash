@@ -23,7 +23,7 @@ def record_event(raw_event):
                 "schema": "iglu:io.redash.webhooks/event/jsonschema/1-0-0",
                 "data": event.to_dict(),
             }
-            response = requests.post(hook, json=data)
+            response = requests.post(hook, json=data, timeout=settings.REQUESTS_SHORT_TIMEOUT)
             if response.status_code != 200:
                 logger.error("Failed posting to %s: %s", hook, response.content)
         except Exception:
@@ -48,7 +48,7 @@ def subscribe(form):
         "security_notifications": form["security_notifications"],
         "newsletter": form["newsletter"],
     }
-    requests.post("https://version.redash.io/subscribe", json=data)
+    requests.post("https://version.redash.io/subscribe", json=data, timeout=settings.REQUESTS_SHORT_TIMEOUT)
 
 
 @job("emails")

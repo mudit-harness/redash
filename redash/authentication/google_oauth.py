@@ -32,7 +32,11 @@ def verify_profile(org, profile):
 
 def get_user_profile(access_token, logger):
     headers = {"Authorization": f"OAuth {access_token}"}
-    response = requests.get("https://www.googleapis.com/oauth2/v1/userinfo", headers=headers)
+    response = requests.get(
+        "https://www.googleapis.com/oauth2/v1/userinfo",
+        headers=headers,
+        timeout=settings.REQUESTS_SHORT_TIMEOUT,
+    )
 
     if response.status_code == 401:
         logger.warning("Failed getting user profile (response code 401).")

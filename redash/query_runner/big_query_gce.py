@@ -8,6 +8,7 @@ try:
 except ImportError:
     enabled = False
 
+from redash import settings
 from redash.query_runner import register
 
 from .big_query import BigQuery
@@ -24,9 +25,11 @@ class BigQueryGCE(BigQuery):
             return False
 
         try:
-            # check if we're on a GCE instance
-            requests.get("http://metadata.google.internal")
-        except requests.exceptions.ConnectionError:
+            # check if we're on a GCE instance. The metadata server is link local and
+            # answers in milliseconds, so a short timeout is enough: anything slower is
+            # treated the same way as an unreachable metadata server.
+            requests.get("http://metadata.google.internal", timeout=settings.REQUESTS_SHORT_TIMEOUT)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
             return False
 
         return True

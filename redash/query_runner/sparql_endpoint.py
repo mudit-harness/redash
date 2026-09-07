@@ -7,6 +7,7 @@ import json
 import logging
 from os import environ
 
+from redash import settings
 from redash.query_runner import BaseQueryRunner
 
 from . import register
@@ -133,6 +134,7 @@ class SPARQLEndpointQueryRunner(BaseQueryRunner):
                 endpoint,
                 params=dict(query=query_text),
                 headers=dict(Accept="application/json"),
+                timeout=settings.REQUESTS_TIMEOUT,
             )
             data = self._transform_sparql_results(r.text)
         except Exception as error:
@@ -193,6 +195,7 @@ class SPARQLEndpointQueryRunner(BaseQueryRunner):
             endpoint,
             params=dict(query=query_text),
             headers=dict(Accept="application/json"),
+            timeout=settings.REQUESTS_TIMEOUT,
         ).json()
         graph_iris = [g.get("g").get("value") for g in r.get("results").get("bindings")]
         graphs = []
