@@ -1,6 +1,11 @@
 packages:
   - "viz-lib"
 
+# Wait at least 7 days (10080 minutes) before a newly published version of a
+# package is eligible for installation, to reduce exposure to compromised or
+# unstable releases. Requires pnpm >= 10.16.0.
+minimumReleaseAge: 10080
+
 onlyBuiltDependencies:
   - "sql-formatter"
   - "core-js"
