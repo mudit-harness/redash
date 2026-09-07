@@ -58,7 +58,7 @@ INVITATION_TOKEN_MAX_AGE = int(os.environ.get("REDASH_INVITATION_TOKEN_MAX_AGE",
 # The secret key to use in the Flask app for various cryptographic features
 SECRET_KEY = os.environ.get("REDASH_COOKIE_SECRET")
 
-if SECRET_KEY is None:
+if SECRET_KEY is None or not SECRET_KEY.strip():
     raise Exception(
         "You must set the REDASH_COOKIE_SECRET environment variable. Visit http://redash.io/help/open-source/admin-guide/secrets for more information."
     )
