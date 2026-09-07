@@ -1,3 +1,4 @@
+import re
 import time
 
 import mock
@@ -39,7 +40,7 @@ class TestInvite(BaseTestCase):
         token = invite_token(self.factory.user)
         self.post_request(
             "/invite/{}".format(token),
-            data={"password": "test1234"},
+            data={"csrf_token": self.csrf_token(), "password": "test1234"},
             org=self.factory.org,
         )
         response = self.get_request("/invite/{}".format(token), org=self.factory.org)
@@ -49,18 +50,26 @@ class TestInvite(BaseTestCase):
 class TestInvitePost(BaseTestCase):
     def test_empty_password(self):
         token = invite_token(self.factory.user)
-        response = self.post_request("/invite/{}".format(token), data={"password": ""}, org=self.factory.org)
+        response = self.post_request(
+            "/invite/{}".format(token),
+            data={"csrf_token": self.csrf_token(), "password": ""},
+            org=self.factory.org,
+        )
         self.assertEqual(response.status_code, 400)
 
     def test_invalid_password(self):
         token = invite_token(self.factory.user)
-        response = self.post_request("/invite/{}".format(token), data={"password": "1234"}, org=self.factory.org)
+        response = self.post_request(
+            "/invite/{}".format(token),
+            data={"csrf_token": self.csrf_token(), "password": "1234"},
+            org=self.factory.org,
+        )
         self.assertEqual(response.status_code, 400)
 
     def test_bad_token(self):
         response = self.post_request(
             "/invite/{}".format("jdsnfkjdsnfkj"),
-            data={"password": "1234"},
+            data={"csrf_token": self.csrf_token(), "password": "1234"},
             org=self.factory.org,
         )
         self.assertEqual(response.status_code, 400)
@@ -70,7 +79,7 @@ class TestInvitePost(BaseTestCase):
         token = invite_token(user)
         response = self.post_request(
             "/invite/{}".format(token),
-            data={"password": "test1234"},
+            data={"csrf_token": self.csrf_token(), "password": "test1234"},
             org=self.factory.org,
         )
         self.assertEqual(response.status_code, 302)
@@ -79,12 +88,12 @@ class TestInvitePost(BaseTestCase):
         token = invite_token(self.factory.user)
         self.post_request(
             "/invite/{}".format(token),
-            data={"password": "test1234"},
+            data={"csrf_token": self.csrf_token(), "password": "test1234"},
             org=self.factory.org,
         )
         response = self.post_request(
             "/invite/{}".format(token),
-            data={"password": "test1234"},
+            data={"csrf_token": self.csrf_token(), "password": "test1234"},
             org=self.factory.org,
         )
         self.assertEqual(response.status_code, 400)
@@ -95,7 +104,7 @@ class TestInvitePost(BaseTestCase):
         password = "test1234"
         response = self.post_request(
             "/invite/{}".format(token),
-            data={"password": password},
+            data={"csrf_token": self.csrf_token(), "password": password},
             org=self.factory.org,
         )
         self.assertEqual(response.status_code, 302)
@@ -124,6 +133,120 @@ class TestLogin(BaseTestCase):
 
         response = self.get_request("/forgot", org=self.factory.org)
         self.assertEqual(response.status_code, 429)
+
+
+class TestFormCSRFProtection(BaseTestCase):
+    """The tokens embedded by the server-rendered forms have to be validated.
+
+    ``ENFORCE_CSRF`` is opt-in and only covers the API, so these unauthenticated
+    form handlers enforce their own token (see ``redash.security``).
+    """
+
+    def rendered_csrf_token(self, path):
+        response = self.get_request(path, org=self.factory.org)
+        self.assertEqual(response.status_code, 200)
+        match = re.search(r'name="csrf_token" value="([^"]+)"', response.data.decode())
+        self.assertIsNotNone(match, "no csrf_token rendered in {}".format(path))
+        return match.group(1)
+
+    def test_login_rejects_post_without_csrf_token(self):
+        user = self.factory.user
+        user.hash_password("password")
+        self.db.session.add(user)
+        self.db.session.commit()
+
+        with mock.patch("redash.handlers.authentication.login_user") as login_user_mock:
+            response = self.post_request(
+                "/login",
+                data={"email": user.email, "password": "password"},
+                org=self.factory.org,
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(login_user_mock.called)
+
+    def test_login_rejects_post_with_forged_csrf_token(self):
+        user = self.factory.user
+        user.hash_password("password")
+        self.db.session.add(user)
+        self.db.session.commit()
+
+        # a session holding a valid secret is not enough, the token has to match it
+        self.csrf_token()
+
+        with mock.patch("redash.handlers.authentication.login_user") as login_user_mock:
+            response = self.post_request(
+                "/login",
+                data={
+                    "csrf_token": "not-a-valid-token",
+                    "email": user.email,
+                    "password": "password",
+                },
+                org=self.factory.org,
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(login_user_mock.called)
+
+    def test_login_accepts_the_token_rendered_in_the_form(self):
+        user = self.factory.user
+        user.hash_password("password")
+        self.db.session.add(user)
+        self.db.session.commit()
+
+        response = self.post_request(
+            "/login",
+            data={
+                "csrf_token": self.rendered_csrf_token("/login"),
+                "email": user.email,
+                "password": "password",
+            },
+            org=self.factory.org,
+        )
+
+        self.assertEqual(response.status_code, 302)
+
+    def test_forgot_password_rejects_post_without_csrf_token(self):
+        user = self.factory.create_user()
+
+        with mock.patch("redash.handlers.authentication.send_password_reset_email") as send_email_mock:
+            response = self.post_request("/forgot", data={"email": user.email}, org=user.org)
+
+        self.assertEqual(response.status_code, 400)
+        send_email_mock.assert_not_called()
+
+    def test_invite_rejects_post_without_csrf_token(self):
+        user = self.factory.create_user(is_invitation_pending=True)
+        token = invite_token(user)
+
+        response = self.post_request(
+            "/invite/{}".format(token),
+            data={"password": "test1234"},
+            org=self.factory.org,
+        )
+
+        self.assertEqual(response.status_code, 400)
+        user = User.query.get(user.id)
+        self.assertTrue(user.is_invitation_pending)
+        self.assertFalse(user.verify_password("test1234"))
+
+    def test_reset_rejects_post_without_csrf_token(self):
+        user = self.factory.create_user(is_invitation_pending=False)
+        user.hash_password("password")
+        self.db.session.add(user)
+        self.db.session.commit()
+        token = invite_token(user)
+
+        response = self.post_request(
+            "/reset/{}".format(token),
+            data={"password": "test1234"},
+            org=self.factory.org,
+        )
+
+        self.assertEqual(response.status_code, 400)
+        user = User.query.get(user.id)
+        self.assertFalse(user.verify_password("test1234"))
+        self.assertTrue(user.verify_password("password"))
 
 
 class TestSession(BaseTestCase):

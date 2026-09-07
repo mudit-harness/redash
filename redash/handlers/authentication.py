@@ -16,6 +16,7 @@ from redash.authentication.account import (
 )
 from redash.handlers import routes
 from redash.handlers.base import json_response, org_scoped_rule
+from redash.security import csrf_protect_form
 from redash.utils import external_url_for
 from redash.version_check import get_latest_version
 
@@ -131,11 +132,13 @@ def render_token_login_page(template, org_slug, token, invite):
 
 
 @routes.route(org_scoped_rule("/invite/<token>"), methods=["GET", "POST"])
+@csrf_protect_form
 def invite(token, org_slug=None):
     return render_token_login_page("invite.html", org_slug, token, True)
 
 
 @routes.route(org_scoped_rule("/reset/<token>"), methods=["GET", "POST"])
+@csrf_protect_form
 def reset(token, org_slug=None):
     return render_token_login_page("reset.html", org_slug, token, False)
 
@@ -169,6 +172,7 @@ def verify(token, org_slug=None):
 
 @routes.route(org_scoped_rule("/forgot"), methods=["GET", "POST"])
 @limiter.limit(settings.THROTTLE_PASS_RESET_PATTERN)
+@csrf_protect_form
 def forgot_password(org_slug=None):
     if not current_org.get_setting("auth_password_login_enabled"):
         abort(404)
@@ -201,6 +205,7 @@ def verification_email(org_slug=None):
 
 @routes.route(org_scoped_rule("/login"), methods=["GET", "POST"])
 @limiter.limit(settings.THROTTLE_LOGIN_PATTERN)
+@csrf_protect_form
 def login(org_slug=None):
     # We intentionally use == as otherwise it won't actually use the proxy. So weird :O
     # noinspection PyComparisonWithNone

@@ -319,7 +319,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_no_next_param(self):
         response = self.post_request(
             "/login",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "/{}/".format(self.user.org.slug))
@@ -327,7 +327,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_simple_path_in_next_param(self):
         response = self.post_request(
             "/login?next=queries",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "queries")
@@ -335,7 +335,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_starts_scheme_url_in_next_param(self):
         response = self.post_request(
             "/login?next=https://redash.io",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -343,7 +343,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_without_scheme_url_in_next_param(self):
         response = self.post_request(
             "/login?next=//redash.io",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -351,7 +351,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_without_scheme_with_path_url_in_next_param(self):
         response = self.post_request(
             "/login?next=//localhost/queries",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "/queries")
@@ -359,7 +359,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_multiple_slashes_open_redirect(self):
         response = self.post_request(
             "/login?next=////evil.com",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -367,7 +367,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_triple_slash_open_redirect(self):
         response = self.post_request(
             "/login?next=///evil.com/phish",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -375,7 +375,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_multiple_slashes_with_path(self):
         response = self.post_request(
             "/login?next=////evil.com/callback?token=secret",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -383,7 +383,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_file_scheme_open_redirect(self):
         response = self.post_request(
             "/login?next=file:https://evil.com/",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -391,7 +391,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_javascript_scheme_rejected(self):
         response = self.post_request(
             "/login?next=javascript:alert(1)",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -399,7 +399,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_http_scheme_without_netloc_rejected(self):
         response = self.post_request(
             "/login?next=http:///evil.com",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -407,7 +407,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_slash_backslash_redirect_rejected(self):
         response = self.post_request(
             "/login?next=/%5Cevil.com",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -415,7 +415,7 @@ class TestRedirectToUrlAfterLoggingIn(BaseTestCase):
     def test_data_scheme_rejected(self):
         response = self.post_request(
             "/login?next=data:text/html,<script>alert(1)</script>",
-            data={"email": self.user.email, "password": self.password},
+            data={"csrf_token": self.csrf_token(), "email": self.user.email, "password": self.password},
             org=self.factory.org,
         )
         self.assertEqual(response.location, "./")
@@ -637,7 +637,11 @@ class TestUserForgotPassword(BaseTestCase):
         user = self.factory.create_user()
 
         with patch("redash.handlers.authentication.send_password_reset_email") as send_password_reset_email_mock:
-            response = self.post_request("/forgot", org=user.org, data={"email": user.email})
+            response = self.post_request(
+                "/forgot",
+                org=user.org,
+                data={"csrf_token": self.csrf_token(), "email": user.email},
+            )
             self.assertEqual(response.status_code, 200)
             send_password_reset_email_mock.assert_called_with(user)
 
@@ -652,7 +656,11 @@ class TestUserForgotPassword(BaseTestCase):
         ) as send_password_reset_email_mock, patch(
             "redash.handlers.authentication.send_user_disabled_email"
         ) as send_user_disabled_email_mock:
-            response = self.post_request("/forgot", org=user.org, data={"email": user.email})
+            response = self.post_request(
+                "/forgot",
+                org=user.org,
+                data={"csrf_token": self.csrf_token(), "email": user.email},
+            )
             self.assertEqual(response.status_code, 200)
             send_password_reset_email_mock.assert_not_called()
             send_user_disabled_email_mock.assert_called_with(user)
