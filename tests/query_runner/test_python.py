@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime
 from unittest import TestCase
 
@@ -138,6 +139,83 @@ class TestPythonQueryRunner(TestCase):
         python = Python({"allowedImportModules": "json"})
 
         data, error = python.run_query("import json\nresult = json.decoder.re", "user")
+
+        self.assertIsNone(data)
+        self.assertIn("not configured as a supported import module", error)
+
+    def test_getattr_blocks_attribute_access_on_denied_module(self):
+        python = Python({"allowedImportModules": "json"})
+
+        with self.assertRaisesRegex(Exception, "not configured as a supported import module"):
+            python.custom_get_attr(os, "system")
+
+    def test_import_rejects_module_outside_allowlist(self):
+        python = Python({"allowedImportModules": "json"})
+
+        with self.assertRaisesRegex(Exception, "not configured as a supported import module"):
+            python.custom_import("os")
+
+    def test_import_is_not_attempted_for_denied_module(self):
+        """The allow-list must be checked before the import, which runs module level code."""
+        python = Python({"allowedImportModules": "json"})
+
+        with mock.patch("redash.query_runner.python.importlib.import_module") as import_module:
+            with self.assertRaisesRegex(Exception, "not configured as a supported import module"):
+                python.custom_import("os")
+
+        import_module.assert_not_called()
+
+    def test_import_allowlist_is_not_a_bare_prefix_match(self):
+        python = Python({"allowedImportModules": "jso"})
+
+        with mock.patch("redash.query_runner.python.importlib.import_module") as import_module:
+            with self.assertRaisesRegex(Exception, "not configured as a supported import module"):
+                python.custom_import("json")
+
+        import_module.assert_not_called()
+
+    def test_import_allows_allowlisted_module_and_caches_it(self):
+        python = Python({"allowedImportModules": "json"})
+
+        self.assertIs(json, python.custom_import("json"))
+
+        with mock.patch("redash.query_runner.python.importlib.import_module") as import_module:
+            self.assertIs(json, python.custom_import("json"))
+
+        import_module.assert_not_called()
+
+    def test_import_allows_submodule_of_allowed_module(self):
+        python = Python({"allowedImportModules": "json"})
+
+        self.assertIs(json.decoder, python.custom_import("json.decoder"))
+
+    def test_import_allowlist_entries_are_stripped(self):
+        python = Python({"allowedImportModules": " json , "})
+
+        self.assertEqual(frozenset(["json"]), python._allowed_modules)
+        self.assertIs(json, python.custom_import("json"))
+
+    def test_from_import_cannot_smuggle_denied_module(self):
+        """``from json import codecs`` resolves without ``custom_get_attr``, so reject it here."""
+        python = Python({"allowedImportModules": "json"})
+
+        with self.assertRaisesRegex(Exception, "codecs.*not configured as a supported import module"):
+            python.custom_import("json", fromlist=("codecs",))
+
+    def test_from_import_allows_submodule_of_allowed_module(self):
+        python = Python({"allowedImportModules": "json"})
+
+        self.assertIs(json, python.custom_import("json", fromlist=("decoder",)))
+
+    def test_from_import_allows_non_module_members(self):
+        python = Python({"allowedImportModules": "json"})
+
+        self.assertIs(json, python.custom_import("json", fromlist=("dumps",)))
+
+    def test_script_cannot_import_module_outside_the_allowlist(self):
+        python = Python({"allowedImportModules": "json"})
+
+        data, error = python.run_query("import os", "user")
 
         self.assertIsNone(data)
         self.assertIn("not configured as a supported import module", error)
