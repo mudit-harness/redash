@@ -246,7 +246,7 @@ const config = {
             if (m) return `images/${m[1]}`;
             // For images from node_modules or elsewhere, flatten to avoid deep paths
             const parts = filePath.split("/");
-            return `images/${parts[parts.length - 1]}`;
+            return `images/${parts.at(-1)}`;
           }
         }
       },

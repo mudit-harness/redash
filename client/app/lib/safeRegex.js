@@ -48,7 +48,7 @@ function skipCharacterClass(pattern, index) {
 
 // Describes the quantifier starting at `index`, or null when there is none.
 function quantifierAt(pattern, index) {
-  switch (pattern[index]) {
+  switch (pattern.charAt(index)) {
     case "*":
     case "+":
       return { length: 1, max: Infinity };
@@ -76,7 +76,7 @@ function quantifierAt(pattern, index) {
 // ambiguous and therefore exponential.
 function containsRepetition(pattern) {
   for (let index = 0; index < pattern.length; index += 1) {
-    const char = pattern[index];
+    const char = pattern.charAt(index);
     if (char === "\\") {
       index += 1;
     } else if (char === "[") {
@@ -97,7 +97,7 @@ function splitAlternatives(pattern) {
   let depth = 0;
   let start = 0;
   for (let index = 0; index < pattern.length; index += 1) {
-    const char = pattern[index];
+    const char = pattern.charAt(index);
     if (char === "\\") {
       index += 1;
     } else if (char === "[") {
@@ -120,12 +120,12 @@ function splitAlternatives(pattern) {
 // same text - `(foo|bar)+` - are left alone.
 function hasOverlappingAlternatives(pattern) {
   const alternatives = splitAlternatives(pattern);
-  for (let index = 0; index < alternatives.length; index += 1) {
-    const alternative = alternatives[index];
-    for (let other = 0; other < alternatives.length; other += 1) {
-      if (other !== index && alternative !== "" && alternatives[other].startsWith(alternative)) {
-        return true;
-      }
+  for (const [index, alternative] of alternatives.entries()) {
+    if (
+      alternative !== "" &&
+      alternatives.some((other, otherIndex) => otherIndex !== index && other.startsWith(alternative))
+    ) {
+      return true;
     }
   }
   return false;
@@ -136,7 +136,7 @@ function hasOverlappingAlternatives(pattern) {
 function hasCatastrophicBacktracking(pattern) {
   const groupStarts = [];
   for (let index = 0; index < pattern.length; index += 1) {
-    const char = pattern[index];
+    const char = pattern.charAt(index);
     if (char === "\\") {
       index += 1;
     } else if (char === "[") {
