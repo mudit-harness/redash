@@ -6,6 +6,11 @@ packages:
 # unstable releases. Requires pnpm >= 10.16.0.
 minimumReleaseAge: 10080
 
+# Refuse transitive dependencies resolved from untrusted, non-registry sources
+# (git, GitHub, remote tarball, file or link specifiers), which bypass registry
+# integrity checks. Requires pnpm >= 10.26.0.
+blockExoticSubdeps: true
+
 onlyBuiltDependencies:
   - "sql-formatter"
   - "core-js"
