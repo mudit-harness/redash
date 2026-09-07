@@ -70,9 +70,7 @@ def upload_asset(release, filepath):
 
     with open(filepath) as file_content:
         headers = {"Content-Type": "application/gzip"}
-        response = requests.post(
-            upload_url, file_content, params={"name": filename}, headers=headers, auth=auth, verify=False
-        )
+        response = requests.post(upload_url, file_content, params={"name": filename}, headers=headers, auth=auth)
 
     if response.status_code != 201:  # not 200/201/...
         raise exception_from_error("Failed uploading asset", response)
