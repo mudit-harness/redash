@@ -14,9 +14,6 @@ on:
         required: false
         default: ''
 
-env:
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
 permissions:
   actions: write
   contents: write
@@ -31,6 +28,8 @@ jobs:
           ssh-key: ${{ secrets.ACTION_PUSH_KEY }}
 
       - env:
+          # Scoped to this step only: the `gh` CLI call below is the sole consumer.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
           BUMP_INPUT_VALUE: ${{ github.event.inputs.bump }}
           SPECIFIC_VERSION_INPUT: ${{ github.event.inputs.version }}
