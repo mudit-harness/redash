@@ -18,6 +18,7 @@ from redash.authentication import (
     hmac_load_user_from_request,
     jwt_auth,
     org_settings,
+    parse_expires,
     sign,
 )
 from redash.authentication.google_oauth import (
@@ -158,6 +159,48 @@ class TestHMACAuthentication(BaseTestCase):
                 },
             )
             self.assertEqual(user.id, hmac_load_user_from_request(request).id)
+
+    def test_non_finite_expires_is_rejected(self):
+        for expires in ("nan", "NaN", "NAN", "inf", "Infinity", "-INF", "1e999"):
+            with self.app.test_client() as c:
+                c.get(
+                    self.path,
+                    query_string={
+                        "signature": self.signature(expires),
+                        "expires": expires,
+                    },
+                )
+                self.assertIsNone(hmac_load_user_from_request(request))
+
+    def test_malformed_expires_is_rejected(self):
+        for expires in ("not-a-number", "", "0x10", "1800,5"):
+            with self.app.test_client() as c:
+                c.get(
+                    self.path,
+                    query_string={
+                        "signature": self.signature(expires),
+                        "expires": expires,
+                    },
+                )
+                self.assertIsNone(hmac_load_user_from_request(request))
+
+
+class TestParseExpires(BaseTestCase):
+    def test_returns_float_for_valid_values(self):
+        self.assertEqual(1800.5, parse_expires("1800.5"))
+        self.assertEqual(1800.0, parse_expires(1800))
+
+    def test_fails_closed_for_missing_values(self):
+        self.assertEqual(0, parse_expires(None))
+        self.assertEqual(0, parse_expires(""))
+
+    def test_fails_closed_for_malformed_values(self):
+        self.assertEqual(0, parse_expires("not-a-number"))
+        self.assertEqual(0, parse_expires([]))
+
+    def test_fails_closed_for_non_finite_values(self):
+        for value in ("nan", "NaN", "-nan", "inf", "INF", "Infinity", "-infinity", "1e999"):
+            self.assertEqual(0, parse_expires(value), value)
 
 
 class TestSessionAuthentication(BaseTestCase):

@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import logging
+import math
 import time
 import unicodedata
 from datetime import timedelta
@@ -76,9 +77,30 @@ def request_loader(request):
     return user
 
 
+def parse_expires(value):
+    """Parse a signed URL's `expires` parameter, failing closed.
+
+    Returns 0 (already expired) for missing, malformed or non-finite input, so user supplied values such as
+    "nan", "inf" or "-Infinity" can't reach the expiry comparison: NaN makes every comparison false and the
+    infinities make the window undefined instead of bounded.
+    """
+    if value is None or value == "":
+        return 0.0
+
+    try:
+        expires = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+    if not math.isfinite(expires):
+        return 0.0
+
+    return expires
+
+
 def hmac_load_user_from_request(request):
     signature = request.args.get("signature")
-    expires = float(request.args.get("expires") or 0)
+    expires = parse_expires(request.args.get("expires"))
     query_id = request.view_args.get("query_id", None)
     user_id = request.args.get("user_id", None)
 
