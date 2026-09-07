@@ -12,7 +12,6 @@ import {
   union,
   uniq,
   has,
-  identity,
   extend,
   each,
   some,
@@ -25,8 +24,6 @@ import { Parameter, createParameter } from "./parameters";
 import { currentUser } from "./auth";
 import QueryResult from "./query-result";
 import localOptions from "@/lib/localOptions";
-
-Mustache.escape = identity; // do not html-escape values
 
 const logger = debug("redash:services:query");
 
@@ -220,6 +217,13 @@ class Parameters {
     let parameters = [];
     if (this.query.query !== undefined) {
       try {
+        // Mustache is only used here to *parse* the query text and collect `{{ param }}` names;
+        // nothing is rendered client-side, so `Mustache.escape` is irrelevant to substitution and
+        // must be left at its default. Parameter values are substituted into the SQL server-side by
+        // `mustache_render` (redash/utils), which intentionally does not HTML-escape them.
+        // Never assign `Mustache.escape`: it is module-wide state and would silently disable HTML
+        // escaping for every other `Mustache.render` in the bundle (e.g. the alert notification
+        // template preview in pages/alert/components/NotificationTemplate).
         const parts = Mustache.parse(this.query.query);
         parameters = uniq(collectParams(parts));
       } catch (e) {
