@@ -5,14 +5,26 @@ from redash.query_runner import BaseQueryRunner, register
 
 
 def query_to_script_path(path, query):
-    if path != "*":
-        script = os.path.join(path, query.split(" ")[0])
-        if not os.path.exists(script):
-            raise IOError("Script '{}' not found in script directory".format(query))
+    if path == "*":
+        return query
 
-        return os.path.join(path, query).split(" ")
+    arguments = query.strip().split(" ")
+    script_name = arguments[0]
+    if not script_name:
+        raise IOError("No script specified")
 
-    return query
+    # The query is user supplied, so the script it resolves to must stay inside the
+    # configured scripts directory: reject absolute paths, "../" and symlinks that
+    # point outside of it.
+    scripts_directory = os.path.realpath(path)
+    script = os.path.join(path, script_name)
+    if os.path.commonpath([scripts_directory, os.path.realpath(script)]) != scripts_directory:
+        raise IOError("Script '{}' is outside of the script directory".format(query))
+
+    if not os.path.exists(script):
+        raise IOError("Script '{}' not found in script directory".format(query))
+
+    return [script] + arguments[1:]
 
 
 def run_script(script, shell):
@@ -69,8 +81,13 @@ class Script(BaseQueryRunner):
 
     def run_query(self, query, user):
         try:
-            script = query_to_script_path(self.configuration["path"], query)
-            return run_script(script, self.configuration["shell"])
+            path = self.configuration["path"]
+            script = query_to_script_path(path, query)
+            # The shell option can only apply to the free form ("*") mode, where the query
+            # itself is the command line. A script resolved inside the configured directory
+            # is executed as an argument vector, so the query is never parsed by a shell.
+            shell = path == "*" and self.configuration.get("shell", False)
+            return run_script(script, shell)
         except IOError as e:
             return None, str(e)
         except subprocess.CalledProcessError as e:
