@@ -11,6 +11,11 @@ minimumReleaseAge: 10080
 # integrity checks. Requires pnpm >= 10.26.0.
 blockExoticSubdeps: true
 
+# Refuse resolutions that would weaken the trust and provenance settings
+# already recorded for a package, so a malicious update cannot downgrade them.
+# Requires pnpm >= 10.21.0.
+trustPolicy: no-downgrade
+
 onlyBuiltDependencies:
   - "sql-formatter"
   - "core-js"
