@@ -36,7 +36,7 @@ def job_id(kwargs):
     metadata = kwargs.copy()
     metadata["func"] = metadata["func"].__name__
 
-    return hashlib.sha1(json.dumps(metadata, sort_keys=True).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(metadata, sort_keys=True).encode()).hexdigest()
 
 
 def prep(kwargs):
