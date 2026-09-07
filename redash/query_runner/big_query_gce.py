@@ -1,7 +1,7 @@
-import requests
-
 try:
     import google.auth
+    import google.auth.compute_engine._metadata
+    import google.auth.transport.requests
     from apiclient.discovery import build
 
     enabled = True
@@ -25,14 +25,23 @@ class BigQueryGCE(BigQuery):
             return False
 
         try:
-            # check if we're on a GCE instance. The metadata server is link local and
-            # answers in milliseconds, so a short timeout is enough: anything slower is
-            # treated the same way as an unreachable metadata server.
-            requests.get("http://metadata.google.internal", timeout=settings.REQUESTS_SHORT_TIMEOUT)
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            # Check if we're on a GCE instance by asking google-auth to ping the metadata
+            # server: it validates the Metadata-Flavor: Google response header (so a host
+            # that merely answers for the name does not pass) and honours the
+            # GCE_METADATA_HOST / GCE_METADATA_IP overrides. The metadata server is link
+            # local and answers in milliseconds, so a short timeout is enough: anything
+            # slower is treated the same way as an unreachable metadata server.
+            # ping() wants a single number of seconds, so pass the connect element of the
+            # (connect, read) tuple.
+            request = google.auth.transport.requests.Request()
+            return google.auth.compute_engine._metadata.ping(request, timeout=settings.REQUESTS_SHORT_TIMEOUT[0])
+        except Exception:
+            # Deliberately broad: this classmethod runs during data source type
+            # enumeration, and a metadata probe that fails for any reason (private
+            # google-auth internals moving, transport errors, DNS) just means this is not
+            # a usable GCE data source. Do not narrow this - an escaping exception would
+            # break unrelated UI.
             return False
-
-        return True
 
     @classmethod
     def configuration_schema(cls):
