@@ -1,6 +1,8 @@
 import datetime
 import importlib
+import inspect
 import logging
+import operator
 import sys
 
 from RestrictedPython import compile_restricted
@@ -12,7 +14,6 @@ from RestrictedPython.Guards import (
     safe_builtins,
     safer_getattr,
 )
-from RestrictedPython.transformer import IOPERATOR_TO_STR
 from sqlalchemy.orm.exc import MultipleResultsFound
 
 from redash import models
@@ -41,6 +42,27 @@ else:
 
 
 logger = logging.getLogger(__name__)
+
+# Dispatch table for RestrictedPython's ``_inplacevar_`` hook. It mirrors
+# ``RestrictedPython.transformer.IOPERATOR_TO_STR`` so that every augmented
+# assignment the restricted compiler can emit is handled by the matching
+# ``operator`` function instead of by compiling/executing a built-up code
+# string. Any operator that is not a key here is rejected.
+INPLACE_OPERATORS = {
+    "+=": operator.iadd,
+    "-=": operator.isub,
+    "*=": operator.imul,
+    "/=": operator.itruediv,
+    "//=": operator.ifloordiv,
+    "%=": operator.imod,
+    "**=": operator.ipow,
+    "<<=": operator.ilshift,
+    ">>=": operator.irshift,
+    "|=": operator.ior,
+    "^=": operator.ixor,
+    "&=": operator.iand,
+    "@=": operator.imatmul,
+}
 
 
 class CustomPrint:
@@ -155,6 +177,41 @@ class Python(BaseQueryRunner):
 
         raise Exception("'{0}' is not configured as a supported import module".format(name))
 
+    def _is_allowed_module(self, module):
+        """Return True when ``module`` is allow-listed for this data source.
+
+        Sub-modules of an allow-listed package are accepted (``numpy.random``
+        when ``numpy`` is allowed), everything else is not.
+        """
+        module_name = getattr(module, "__name__", None)
+        if not module_name:
+            return False
+
+        return any(
+            module_name == allowed or module_name.startswith("{0}.".format(allowed))
+            for allowed in self._allowed_modules
+        )
+
+    def custom_get_attr(self, obj, name, default=None):
+        """Attribute access hook for restricted scripts.
+
+        ``safer_getattr`` already rejects private/dunder names, which keeps a
+        script from walking out through ``__class__``/``__globals__``. On top of
+        that we refuse to hand back module objects that are not allow-listed for
+        this data source: allow-listed packages routinely hold public references
+        to modules such as ``os``, ``sys`` or ``subprocess`` (for example
+        ``pandas.io.common.os``), which would otherwise turn any permitted
+        import into arbitrary OS command execution.
+        """
+        value = safer_getattr(obj, name, default)
+
+        if inspect.ismodule(value) and not self._is_allowed_module(value):
+            raise Exception(
+                "'{0}' is not configured as a supported import module".format(getattr(value, "__name__", name))
+            )
+
+        return value
+
     @staticmethod
     def custom_write(obj):
         """
@@ -173,11 +230,15 @@ class Python(BaseQueryRunner):
 
     @staticmethod
     def custom_inplacevar(op, x, y):
-        if op not in IOPERATOR_TO_STR.values():
+        """Apply an augmented assignment (``x <op>= y``) on behalf of a restricted script.
+
+        The operator is looked up in a fixed dispatch table of ``operator``
+        functions, so no code is built from ``op`` and evaluated.
+        """
+        inplace_operator = INPLACE_OPERATORS.get(op)
+        if inplace_operator is None:
             raise Exception("'{} is not supported inplace variable'".format(op))
-        glb = {"x": x, "y": y}
-        exec("x" + op + "y", glb)
-        return glb["x"]
+        return inplace_operator(x, y)
 
     @staticmethod
     def add_result_column(result, column_name, friendly_name, column_type):
@@ -339,8 +400,8 @@ class Python(BaseQueryRunner):
             builtins = safe_builtins.copy()
             builtins["_write_"] = self.custom_write
             builtins["__import__"] = self.custom_import
-            builtins["_getattr_"] = safer_getattr
-            builtins["getattr"] = safer_getattr
+            builtins["_getattr_"] = self.custom_get_attr
+            builtins["getattr"] = self.custom_get_attr
             builtins["_setattr_"] = guarded_setattr
             builtins["setattr"] = guarded_setattr
             builtins["_getitem_"] = self.custom_get_item
