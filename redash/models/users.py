@@ -233,9 +233,9 @@ class User(TimestampMixin, db.Model, BelongsToOrgMixin, UserMixin, PermissionsCh
         return AccessPermission.exists(obj, access_type, grantee=self)
 
     def get_id(self):
-        identity = hashlib.md5(
-            "{},{}".format(self.email, self.password_hash).encode(), usedforsecurity=False
-        ).hexdigest()
+        # The identity binds the session to the current email/password: a collision resistant
+        # digest is required, so SHA-256 is used. Changing it invalidates existing sessions once.
+        identity = hashlib.sha256("{},{}".format(self.email, self.password_hash).encode()).hexdigest()
         return "{0}-{1}".format(self.id, identity)
 
     def get_actual_user(self):

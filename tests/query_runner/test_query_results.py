@@ -224,7 +224,9 @@ class TestExtractParamQueryIds(TestCase):
 class TestPrepareParameterizedQuery(TestCase):
     def test_param_query_replacement(self):
         result = prepare_parameterized_query("SELECT * FROM param_query_123_{token=test}", [("123", "token=test")])
-        self.assertEqual("SELECT * FROM query_123_1c5f1acad40f99b968836273d74baa89", result)
+        self.assertEqual(
+            "SELECT * FROM query_123_649b9ee5dafb316038ab6c4661a5c4a473896c4d59d53e9249406c8fe8a32301", result
+        )
 
 
 class TestReplaceQueryParameters(TestCase):
