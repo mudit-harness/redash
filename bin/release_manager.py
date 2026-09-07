@@ -12,6 +12,19 @@ github_token = os.environ["GITHUB_TOKEN"]
 auth = (github_token, "x-oauth-basic")
 repo = "getredash/redash"
 
+# A revision may only contain characters that can legitimately appear in a git SHA or
+# ref name, and has to start with an alphanumeric character so that git can never parse
+# a caller supplied revision as a command line option (argument injection).
+GIT_REVISION_RE = re.compile(r"\A[0-9A-Za-z][0-9A-Za-z._/-]*\Z")
+
+
+def validate_git_revision(revision):
+    """Return revision unchanged if it is safe to pass to git, raise ValueError otherwise."""
+    if not isinstance(revision, str) or ".." in revision or not GIT_REVISION_RE.match(revision):
+        raise ValueError("Refusing to pass unsafe git revision to git: {!r}".format(revision))
+
+    return revision
+
 
 def _github_request(method, path, params=None, headers={}):
     if urlparse(path).hostname != "api.github.com":
@@ -101,9 +114,12 @@ def get_changelog(commit_sha):
         "--grep",
         "Merge pull request",
         '--pretty=format:"%h|%s|%b|%p"',
-        "{}...{}".format(previous_sha, commit_sha),
+        "{}...{}".format(validate_git_revision(previous_sha), validate_git_revision(commit_sha)),
+        # Everything before "--" is an option or a revision, never a path: this keeps git
+        # from guessing, and the validation above keeps a revision from looking like an option.
+        "--",
     ]
-    log = subprocess.check_output(args)
+    log = subprocess.check_output(args, text=True)
     changes = ["Changes since {}:".format(latest_release["name"])]
 
     for line in log.split("\n"):
@@ -118,7 +134,11 @@ def get_changelog(commit_sha):
         except Exception:
             pull_request = ""
 
-        author = subprocess.check_output(["git", "log", "-1", '--pretty=format:"%an"', parents.split(" ")[-1]])[1:-1]
+        parent = validate_git_revision(parents.split(" ")[-1])
+        author = subprocess.check_output(
+            ["git", "log", "-1", '--pretty=format:"%an"', parent, "--"],
+            text=True,
+        )[1:-1]
 
         changes.append("{}{}: {} ({})".format(sha, pull_request, body.strip(), author))
 
